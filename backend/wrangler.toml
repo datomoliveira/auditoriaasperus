@@ -1,0 +1,11 @@
+name = "security-audit-api"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+ENVIRONMENT = "production"
+MAX_UPLOAD_SIZE_MB = "25"
+# As variáveis AI_API_ENDPOINT e AI_API_KEY devem ser configuradas via:
+# wrangler secret put AI_API_KEY
+# wrangler secret put AI_API_ENDPOINT

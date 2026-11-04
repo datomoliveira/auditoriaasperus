@@ -1,0 +1,25 @@
+{
+  "name": "security-audit-backend",
+  "version": "1.0.0",
+  "description": "Backend de Auditoria de Segurança Serverless (Hono / Cloudflare Workers & Node.js)",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev:cf": "wrangler dev",
+    "dev:node": "tsx watch src/index.ts",
+    "deploy": "wrangler deploy",
+    "build": "esbuild src/index.ts --bundle --target=es2022 --platform=node --outfile=dist/index.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "hono": "^4.7.2",
+    "adm-zip": "^0.5.16"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250224.0",
+    "@types/adm-zip": "^0.5.5",
+    "@types/node": "^22.13.5",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3",
+    "wrangler": "^3.111.0"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "security-audit-workspace",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev:backend": "cd backend && npm run dev:node",
+    "dev:backend:cf": "cd backend && npm run dev:cf",
+    "dev:frontend": "cd frontend && npm run dev",
+    "deploy:worker": "cd backend && npm run deploy",
+    "build:frontend": "cd frontend && npm run build"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "skills": {
+    "caveman-stats": {
+      "source": "juliusbrussee/caveman",
+      "sourceType": "github",
+      "skillPath": "skills/caveman-stats/SKILL.md",
+      "computedHash": "cc9fcd21f2a30cff5596b3cbb197fe0f4b1b30b58084a864350853c217ad301a"
+    },
+    "impeccable": {
+      "source": "pbakaus/impeccable",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/impeccable/SKILL.md",
+      "computedHash": "0e56cc00ab154fe34524e218232a21afbd5400a3096a1a3b4b37de75fd6861a5"
+    }
+  }
+}
