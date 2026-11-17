@@ -133,7 +133,9 @@ app.post("/api/audit/url", async (c) => {
     // Caso contrário, tratamos como repositório git e baixamos o arquivo do host.
     const isZipLink = /\.zip(\?|#|$)/i.test(url);
     const isGitHost =
-      /(^|\.)(github\.com|gitlab\.com|bitbucket\.org|codeberg\.org|sr\.ht|gitea\.com)\b/i.test(url);
+      /(?:^|[./@])(github\.com|gitlab\.com|bitbucket\.org|codeberg\.org|sr\.ht|gitea\.com)\b/i.test(
+        url,
+      ) || /\.git(\?|#|$)/i.test(url);
 
     const result =
       isZipLink || !isGitHost
