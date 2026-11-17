@@ -157,4 +157,35 @@ app.post("/api/audit/url", async (c) => {
   }
 });
 
+// --- DIAGNÓSTICO TEMPORÁRIO: lista os modelos disponíveis nas chaves ---
+app.get("/api/_models", async (c) => {
+  const env = getMergedEnv(c);
+  const targets: [string, string | undefined, string][] = [
+    [
+      "google",
+      env.AI_API_KEY_GOOGLE,
+      `${(env.AI_ENDPOINT_GOOGLE || "https://generativelanguage.googleapis.com/v1beta/openai").replace(/\/$/, "")}/models`,
+    ],
+    ["grok", env.AI_API_KEY_GROK, `${(env.AI_ENDPOINT_GROK || "https://api.x.ai/v1").replace(/\/$/, "")}/models`],
+  ];
+  const out: Record<string, unknown> = {};
+  for (const [name, key, url] of targets) {
+    if (!key) {
+      out[name] = "sem chave";
+      continue;
+    }
+    try {
+      const r = await fetch(url, { headers: { Authorization: `Bearer ${key}` } });
+      const j: any = await r.json();
+      out[name] = {
+        status: r.status,
+        models: (j?.data || j?.models || []).map((m: any) => m.id || m.name).slice(0, 80),
+      };
+    } catch (e: any) {
+      out[name] = "erro: " + e.message;
+    }
+  }
+  return c.json(out);
+});
+
 export default app;
