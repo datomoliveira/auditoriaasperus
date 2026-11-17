@@ -31,6 +31,9 @@ export type Bindings = {
 
 export const app = new Hono<{ Bindings: Bindings }>();
 
+/** Limite de upload (bytes) — protege a memória do runtime contra arquivos enormes. */
+const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // 25 MB
+
 // CORS — necessário apenas para o desenvolvimento local (frontend em outra porta).
 app.use(
   "/*",
@@ -79,6 +82,15 @@ app.get("/health", (c) => {
  */
 app.post("/api/audit/zip", async (c) => {
   try {
+    // Guarda de tamanho: evita esgotar a memória do runtime com uploads enormes.
+    const contentLength = Number(c.req.header("content-length") || 0);
+    if (contentLength > MAX_UPLOAD_BYTES) {
+      return c.json(
+        { error: "O projeto enviado é grande demais. Envie apenas a pasta principal." },
+        413,
+      );
+    }
+
     const body = await c.req.parseBody();
     const file = body["file"];
 
@@ -88,6 +100,13 @@ app.post("/api/audit/zip", async (c) => {
 
     if (!file.name.toLowerCase().endsWith(".zip")) {
       return c.json({ error: "Apenas arquivos com extensão .zip são permitidos." }, 400);
+    }
+
+    if (file.size > MAX_UPLOAD_BYTES) {
+      return c.json(
+        { error: "O projeto enviado é grande demais. Envie apenas a pasta principal." },
+        413,
+      );
     }
 
     const buffer = new Uint8Array(await file.arrayBuffer());

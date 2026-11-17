@@ -86,6 +86,19 @@ export class AuditSandbox {
    * Valida a assinatura do arquivo antes de entregar para a extração.
    */
   async downloadZip(url: string): Promise<Uint8Array> {
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      throw new Error("O link informado não é um endereço válido.");
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new Error("O link precisa começar com http:// ou https://.");
+    }
+    if (this.isBlockedHost(parsed.hostname)) {
+      throw new Error("Esse endereço não pode ser analisado por motivos de segurança.");
+    }
+
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 45000);
     try {
@@ -119,6 +132,23 @@ export class AuditSandbox {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  /** Bloqueia alvos internos/privados (proteção contra SSRF). */
+  private isBlockedHost(hostname: string): boolean {
+    const h = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+    if (h === "localhost" || h.endsWith(".localhost") || h === "0.0.0.0") return true;
+    if (h === "::1" || h === "::") return true;
+    const m = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (m) {
+      const a = Number(m[1]);
+      const b = Number(m[2]);
+      if (a === 0 || a === 10 || a === 127) return true;
+      if (a === 169 && b === 254) return true; // link-local (metadados de nuvem)
+      if (a === 192 && b === 168) return true;
+      if (a === 172 && b >= 16 && b <= 31) return true;
+    }
+    return false;
   }
 
   /** Repositório git → baixa o arquivo .zip do host e extrai na memória. */
