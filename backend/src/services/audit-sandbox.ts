@@ -1,115 +1,83 @@
-import { execSync } from "node:child_process";
-import * as fs from "node:fs";
-import * as path from "node:path";
-import AdmZip from "adm-zip";
+import { unzipSync } from "fflate";
 import { AgnosticAIRouter, AuditReportResult } from "./ai-client";
 
 export interface SandboxExecutionOptions {
   runId: string;
   sourceType: "zip" | "git";
-  zipBuffer?: Buffer;
+  zipBuffer?: Uint8Array;
   repoUrl?: string;
   customEnv?: Record<string, string | undefined>;
 }
 
+/** Pastas que só pesam e não interessam à análise. */
+const IGNORED_DIRS = new Set([
+  "node_modules",
+  ".git",
+  ".svn",
+  ".hg",
+  "dist",
+  "build",
+  "out",
+  ".next",
+  ".nuxt",
+  ".svelte-kit",
+  "coverage",
+  ".cache",
+  ".turbo",
+  ".venv",
+  "venv",
+  "__pycache__",
+  "target",
+  "vendor",
+  ".agents",
+]);
+
+/** Extensões de arquivos que valem a pena auditar. */
+const ALLOWED_EXTENSIONS = new Set([
+  ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts",
+  ".py", ".go", ".rs", ".php", ".rb", ".java", ".kt", ".cs", ".swift",
+  ".json", ".yaml", ".yml", ".toml", ".ini", ".env.example", ".sql", ".sh",
+  ".html", ".vue", ".svelte", ".dockerfile",
+]);
+
+const MAX_FILES = 30;
+const MAX_FILE_BYTES = 300_000;
+const MAX_ARCHIVE_BYTES = 60 * 1024 * 1024; // 60 MB
+
+/**
+ * Sandbox de auditoria 100% em memória — funciona tanto em Node.js quanto no
+ * runtime Workers/Pages do Cloudflare (sem git, sem npx e sem disco).
+ */
 export class AuditSandbox {
-  private baseSandboxDir: string;
-
-  constructor(baseDir = "/tmp/security-audit-sandbox") {
-    this.baseSandboxDir = baseDir;
-    if (!fs.existsSync(this.baseSandboxDir)) {
-      fs.mkdirSync(this.baseSandboxDir, { recursive: true });
-    }
-  }
-
   /**
-   * Orquestra a execução completa da sandbox:
-   * 1. Isola os arquivos no diretório temporário
-   * 2. Instala a skill de auditoria via npx skills add
-   * 3. Filtra e extrai o código fonte do cliente
-   * 4. Executa a auditoria através do AgnosticAIClient
+   * Orquestra a execução completa:
+   * 1. Obtém o código do cliente (.zip enviado, link .zip ou repositório git)
+   * 2. Extrai os arquivos em memória
+   * 3. Filtra o código-fonte relevante
+   * 4. Executa a auditoria via roteador de IA com failover
    */
   async executeAudit(options: SandboxExecutionOptions): Promise<AuditReportResult> {
-    const sandboxPath = path.join(this.baseSandboxDir, options.runId);
-    fs.mkdirSync(sandboxPath, { recursive: true });
+    const files =
+      options.sourceType === "zip"
+        ? this.extractZip(options.zipBuffer ?? new Uint8Array())
+        : await this.fetchRepoFiles(options.repoUrl || "");
 
-    const clientCodePath = path.join(sandboxPath, "target-code");
-    fs.mkdirSync(clientCodePath, { recursive: true });
-
-    try {
-      // 1. Extração dos arquivos do cliente
-      if (options.sourceType === "zip" && options.zipBuffer) {
-        this.extractZipSafely(options.zipBuffer, clientCodePath);
-      } else if (options.sourceType === "git" && options.repoUrl) {
-        this.cloneGitRepo(options.repoUrl, clientCodePath);
-      } else {
-        throw new Error("Fonte de código inválida: forneça um arquivo .zip ou URL de repositório.");
-      }
-
-      // 2. Instalação da skill de auditoria via npx skills
-      const skillRules = this.orchestrateSecuritySkill(sandboxPath);
-
-      // 3. Leitura e indexação dos arquivos de código fonte do cliente
-      const scannedFiles = this.collectSourceFiles(clientCodePath);
-      if (scannedFiles.length === 0) {
-        throw new Error("Nenhum arquivo de código fonte legível encontrado para auditoria.");
-      }
-
-      const filesSummary = scannedFiles.map((f) => `- ${f.path} (${f.content.length} bytes)`).join("\n");
-
-      // 4. Execução do Agente de Auditoria com Roteamento e Fallback Automático de IA
-      const aiRouter = new AgnosticAIRouter(options.customEnv);
-      const auditResult = await aiRouter.runAudit({
-        systemInstructions: skillRules,
-        filesSummary,
-        filesContent: scannedFiles,
-      });
-
-      return auditResult;
-    } finally {
-      // Limpeza opcional da sandbox após a execução
-      try {
-        fs.rmSync(sandboxPath, { recursive: true, force: true });
-      } catch (cleanupErr) {
-        console.warn(`[Sandbox Cleanup Warning]: Falha ao limpar ${sandboxPath}:`, cleanupErr);
-      }
+    const scannedFiles = this.collectSourceFiles(files);
+    if (scannedFiles.length === 0) {
+      throw new Error(
+        "Não encontramos arquivos de código para analisar. Confira se a pasta enviada contém o projeto.",
+      );
     }
-  }
 
-  /**
-   * Extrai o ZIP prevenindo vulnerabilidades de Path Traversal (Zip Slip)
-   */
-  private extractZipSafely(buffer: Buffer, targetDir: string): void {
-    const zip = new AdmZip(buffer);
-    const zipEntries = zip.getEntries();
+    const filesSummary = scannedFiles
+      .map((f) => `- ${f.path} (${f.content.length} bytes)`)
+      .join("\n");
 
-    for (const entry of zipEntries) {
-      const entryName = entry.entryName;
-      const targetFilePath = path.join(targetDir, entryName);
-
-      // Proteção estrita contra Zip-Slip
-      if (!targetFilePath.startsWith(targetDir)) {
-        throw new Error(`[Security Alert] Tentativa de Zip Slip detectada no arquivo: ${entryName}`);
-      }
-
-      if (entry.isDirectory) {
-        fs.mkdirSync(targetFilePath, { recursive: true });
-      } else {
-        fs.mkdirSync(path.dirname(targetFilePath), { recursive: true });
-        fs.writeFileSync(targetFilePath, entry.getData());
-      }
-    }
-  }
-
-  /**
-   * Clona o repositório git do cliente de forma isolada
-   */
-  private cloneGitRepo(repoUrl: string, targetDir: string): void {
-    // Sanitização básica da URL
-    const sanitizedUrl = repoUrl.replace(/["';`$]/g, "");
-    execSync(`git clone --depth 1 "${sanitizedUrl}" "${targetDir}"`, {
-      timeout: 30000,
-      stdio: "pipe",
+    const aiRouter = new AgnosticAIRouter(options.customEnv);
+    return aiRouter.runAudit({
+      systemInstructions: this.skillRules(),
+      filesSummary,
+      filesContent: scannedFiles,
     });
   }
 
@@ -117,21 +85,27 @@ export class AuditSandbox {
    * Baixa um arquivo .zip a partir de um link comum (http/https).
    * Valida a assinatura do arquivo antes de entregar para a extração.
    */
-  async downloadZip(url: string): Promise<Buffer> {
+  async downloadZip(url: string): Promise<Uint8Array> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 30000);
+    const timer = setTimeout(() => controller.abort(), 45000);
     try {
-      const res = await fetch(url, { redirect: "follow", signal: controller.signal });
+      const res = await fetch(url, {
+        redirect: "follow",
+        signal: controller.signal,
+        headers: { "User-Agent": "sentinel-audit", Accept: "*/*" },
+      });
       if (!res.ok) {
         throw new Error(`Não foi possível baixar o arquivo (HTTP ${res.status}).`);
       }
-      const buffer = Buffer.from(await res.arrayBuffer());
+      const buffer = new Uint8Array(await res.arrayBuffer());
       if (buffer.length === 0) {
         throw new Error("O link não retornou nenhum conteúdo.");
       }
+      if (buffer.length > MAX_ARCHIVE_BYTES) {
+        throw new Error("O projeto é grande demais para analisar. Tente enviar apenas a pasta principal.");
+      }
       // Assinatura ZIP: "PK" (0x50 0x4b).
-      const isZip = buffer[0] === 0x50 && buffer[1] === 0x4b;
-      if (!isZip) {
+      if (buffer[0] !== 0x50 || buffer[1] !== 0x4b) {
         throw new Error(
           "O link não aponta para um arquivo .zip. Use um repositório git ou um link direto para um .zip.",
         );
@@ -147,94 +121,166 @@ export class AuditSandbox {
     }
   }
 
+  /** Repositório git → baixa o arquivo .zip do host e extrai na memória. */
+  async fetchRepoFiles(repoUrl: string): Promise<Map<string, Uint8Array>> {
+    const zipUrl = await this.resolveArchiveZipUrl(repoUrl);
+    const bytes = await this.downloadZip(zipUrl);
+    return this.extractZip(bytes);
+  }
+
   /**
-   * Orquestra a skill de auditoria no diretório da sandbox
+   * Converte um link de repositório (GitHub/GitLab/Bitbucket) no link do
+   * arquivo .zip correspondente, descobrindo o branch padrão quando possível.
    */
-  private orchestrateSecuritySkill(sandboxPath: string): string {
-    let skillRules = `
+  private async resolveArchiveZipUrl(repoUrl: string): Promise<string> {
+    const clean = repoUrl.replace(/\.git$/i, "").replace(/\/+$/, "");
+
+    // GitHub
+    const gh = clean.match(/github\.com\/([^/]+)\/([^/#?]+)/i);
+    if (gh) {
+      const [, owner, repo] = gh;
+      const branch = (await this.githubDefaultBranch(owner, repo)) || "main";
+      return `https://codeload.github.com/${owner}/${repo}/zip/refs/heads/${branch}`;
+    }
+
+    // GitLab (pode ter grupos aninhados: grupo/subgrupo/projeto)
+    const gl = clean.match(/gitlab\.com\/(.+)$/i);
+    if (gl) {
+      const projectPath = gl[1].replace(/\/-\/.*$/, "");
+      const branch = (await this.gitlabDefaultBranch(projectPath)) || "main";
+      const repoName = projectPath.split("/").pop();
+      return `https://gitlab.com/${projectPath}/-/archive/${branch}/${repoName}-${branch}.zip`;
+    }
+
+    // Bitbucket
+    const bb = clean.match(/bitbucket\.org\/([^/]+)\/([^/#?]+)/i);
+    if (bb) {
+      const [, owner, repo] = bb;
+      const branch = (await this.bitbucketDefaultBranch(owner, repo)) || "main";
+      return `https://bitbucket.org/${owner}/${repo}/get/${branch}.zip`;
+    }
+
+    throw new Error(
+      "Não reconhecemos esse link de repositório. Use um link do GitHub, GitLab ou Bitbucket, " +
+        "ou um link direto para um arquivo .zip.",
+    );
+  }
+
+  private async githubDefaultBranch(owner: string, repo: string): Promise<string | null> {
+    try {
+      const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
+        headers: { Accept: "application/vnd.github+json", "User-Agent": "sentinel-audit" },
+      });
+      if (!res.ok) return null;
+      const data: any = await res.json();
+      return typeof data?.default_branch === "string" ? data.default_branch : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async gitlabDefaultBranch(projectPath: string): Promise<string | null> {
+    try {
+      const res = await fetch(
+        `https://gitlab.com/api/v4/projects/${encodeURIComponent(projectPath)}`,
+        { headers: { "User-Agent": "sentinel-audit" } },
+      );
+      if (!res.ok) return null;
+      const data: any = await res.json();
+      return typeof data?.default_branch === "string" ? data.default_branch : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async bitbucketDefaultBranch(owner: string, repo: string): Promise<string | null> {
+    try {
+      const res = await fetch(`https://api.bitbucket.org/2.0/repositories/${owner}/${repo}`, {
+        headers: { "User-Agent": "sentinel-audit" },
+      });
+      if (!res.ok) return null;
+      const data: any = await res.json();
+      return data?.mainbranch?.name ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Extrai um .zip em memória, removendo a pasta-raiz comum dos repositórios. */
+  private extractZip(buffer: Uint8Array): Map<string, Uint8Array> {
+    let raw: Record<string, Uint8Array>;
+    try {
+      raw = unzipSync(buffer);
+    } catch {
+      throw new Error("Não conseguimos abrir o arquivo enviado. Confirme que é uma pasta/.zip válido.");
+    }
+
+    const names = Object.keys(raw).filter((name) => !name.endsWith("/") && raw[name].length > 0);
+
+    // Detecta a pasta-raiz comum (ex.: "projeto-main/") e a remove dos caminhos.
+    let prefix = "";
+    if (names.length > 0) {
+      const firstSeg = names[0].split("/")[0];
+      if (names.every((n) => n.startsWith(firstSeg + "/"))) {
+        prefix = firstSeg + "/";
+      }
+    }
+
+    const out = new Map<string, Uint8Array>();
+    for (const name of names) {
+      const cleaned = this.normalizePath(name.slice(prefix.length));
+      if (!cleaned) continue;
+      out.set(cleaned, raw[name]);
+    }
+    return out;
+  }
+
+  /** Normaliza o caminho e descarta entradas perigosas (Zip Slip / absolutas). */
+  private normalizePath(name: string): string {
+    const parts = name
+      .replace(/\\/g, "/")
+      .split("/")
+      .filter((p) => p && p !== "." && p !== "..");
+    return parts.join("/");
+  }
+
+  /** Coleta e filtra arquivos relevantes de código-fonte, ignorando ruídos. */
+  private collectSourceFiles(files: Map<string, Uint8Array>): { path: string; content: string }[] {
+    const results: { path: string; content: string }[] = [];
+    const decoder = new TextDecoder("utf-8", { fatal: false });
+
+    for (const [path, bytes] of files) {
+      if (results.length >= MAX_FILES) break;
+      if (path.split("/").some((seg) => IGNORED_DIRS.has(seg))) continue;
+
+      const lower = path.toLowerCase();
+      const base = lower.split("/").pop() || "";
+      const ext = base.includes(".") ? "." + base.split(".").pop() : "";
+      if (!ALLOWED_EXTENSIONS.has(ext) && !ALLOWED_EXTENSIONS.has(base)) continue;
+
+      if (bytes.length === 0 || bytes.length >= MAX_FILE_BYTES) continue;
+
+      // Descarta arquivos claramente binários (bytes nulos).
+      if (bytes.includes(0)) continue;
+
+      try {
+        results.push({ path, content: decoder.decode(bytes) });
+      } catch {
+        // ignora arquivos ilegíveis
+      }
+    }
+    return results;
+  }
+
+  /** Catálogo de regras de auditoria (OWASP/Cloudflare) usado como instrução da IA. */
+  private skillRules(): string {
+    return `
 Diretrizes Cloudflare Security Audit:
 - Identificar injeção de código, XSS, SSRF e SQL Injection.
 - Detecção de segredos (chaves de API, senhas, tokens JWT e certificados).
 - Verificação de políticas de CORS e cabeçalhos de segurança HTTP.
 - Análise de autenticação/autorização, Broken Object Level Authorization (BOLA).
 - Verificação de dependências desatualizadas ou maliciosas.
-`;
-
-    try {
-      // Executa o comando de instalação da skill conforme solicitado
-      console.log(`[Sandbox] Instalando skill security-audit em ${sandboxPath}...`);
-      execSync(`npx --yes skills add https://github.com/cloudflare/security-audit-skill -y`, {
-        cwd: sandboxPath,
-        timeout: 45000,
-        stdio: "pipe",
-      });
-
-      // Tenta ler o SKILL.md gerado pela instalação
-      const possibleSkillPaths = [
-        path.join(sandboxPath, ".agents/skills/security-audit/SKILL.md"),
-        path.join(sandboxPath, ".agents/skills/security-audit-skill/SKILL.md"),
-        path.join(sandboxPath, "SKILL.md"),
-      ];
-
-      for (const skillFile of possibleSkillPaths) {
-        if (fs.existsSync(skillFile)) {
-          skillRules += "\n" + fs.readFileSync(skillFile, "utf-8");
-          break;
-        }
-      }
-    } catch (err) {
-      console.log("[Sandbox Info] Execução do comando npx skills finalizada. Aplicando catálogo de regras de segurança OWASP/Cloudflare.");
-    }
-
-    return skillRules;
-  }
-
-  /**
-   * Coleta e filtra arquivos relevantes de código fonte, ignorando ruídos
-   */
-  private collectSourceFiles(dir: string, maxFiles = 30): { path: string; content: string }[] {
-    const results: { path: string; content: string }[] = [];
-    const ignoredDirs = new Set(["node_modules", ".git", "dist", "build", ".next", "coverage", ".agents"]);
-    const allowedExtensions = new Set([
-      ".js", ".ts", ".jsx", ".tsx", ".py", ".go", ".rs", ".php", ".rb", ".java",
-      ".json", ".yaml", ".yml", ".toml", ".env.example", ".sql", ".sh", "dockerfile"
-    ]);
-
-    const traverse = (currentDir: string) => {
-      if (results.length >= maxFiles) return;
-
-      const entries = fs.readdirSync(currentDir, { withFileTypes: true });
-      for (const entry of entries) {
-        if (results.length >= maxFiles) break;
-
-        const fullPath = path.join(currentDir, entry.name);
-        const relativePath = path.relative(dir, fullPath);
-
-        if (entry.isDirectory()) {
-          if (!ignoredDirs.has(entry.name)) {
-            traverse(fullPath);
-          }
-        } else if (entry.isFile()) {
-          const ext = path.extname(entry.name).toLowerCase();
-          const base = entry.name.toLowerCase();
-
-          if (allowedExtensions.has(ext) || allowedExtensions.has(base)) {
-            try {
-              const stat = fs.statSync(fullPath);
-              // Ignora arquivos gigantescos (> 300KB) para não exceder limites de contexto da IA
-              if (stat.size < 300000) {
-                const content = fs.readFileSync(fullPath, "utf-8");
-                results.push({ path: relativePath, content });
-              }
-            } catch {
-              // Ignora arquivos binários ou ilegíveis
-            }
-          }
-        }
-      }
-    };
-
-    traverse(dir);
-    return results;
+`.trim();
   }
 }

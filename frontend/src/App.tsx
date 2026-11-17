@@ -16,11 +16,15 @@ import IssueCard from "./components/IssueCard";
 // three.js é pesado: a cena 3D entra sob demanda, fora do bundle inicial.
 const Scene3D = lazy(() => import("./components/Scene3D"));
 
-// Aponta para o mesmo host que serviu a página (localhost no desktop, IP da
-// rede no celular). Assim o backend responde tanto em localhost quanto via LAN.
+// Endereço do backend. Em desenvolvimento local (Vite), ele roda separado na
+// porta 8787. Publicado no Cloudflare Pages, o backend vive no MESMO domínio
+// (via Pages Functions), então usamos caminhos relativos — funciona igual no
+// celular, sem configurar nada.
 const API_BASE_URL =
-  (import.meta.env?.VITE_API_BASE_URL as string | undefined) ||
-  `${window.location.protocol}//${window.location.hostname}:8787`;
+  (import.meta.env.VITE_API_BASE_URL as string | undefined) ??
+  (["5173", "4173"].includes(window.location.port)
+    ? `${window.location.protocol}//${window.location.hostname}:8787`
+    : "");
 
 const CAPABILITIES = [
   {

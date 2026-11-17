@@ -1,5 +1,5 @@
-name = "security-audit-api"
-main = "src/index.ts"
+name = "auditoria-api"
+main = "src/worker.ts"
 compatibility_date = "2024-09-23"
 compatibility_flags = ["nodejs_compat"]
 
@@ -11,3 +11,7 @@ MAX_UPLOAD_SIZE_MB = "25"
 #   wrangler secret put AI_API_KEY_GOOGLE
 #   wrangler secret put AI_API_KEY_OLLAMA
 # Opcional: AI_ROUTING_CHAIN define a ordem de fallback (ex.: "grok,google,ollama").
+#
+# Observação: o deploy padrão deste projeto é via Cloudflare Pages Functions
+# (pasta ../functions), que reaproveita as variáveis do projeto Pages. Este
+# wrangler.toml serve apenas para publicar um Worker standalone, se desejado.
