@@ -11,6 +11,7 @@
     "dev:backend:cf": "cd backend && npm run dev:cf",
     "dev:frontend": "cd frontend && npm run dev",
     "deploy:worker": "cd backend && npm run deploy",
+    "build": "npm run build:frontend",
     "build:frontend": "cd frontend && npm run build"
   }
 }

@@ -5,7 +5,9 @@ import { AuditSandbox } from "./services/audit-sandbox";
 import { AgnosticAIRouter } from "./services/ai-client";
 
 // Carrega variáveis locais se estiver rodando em ambiente Node
+// (o .env fica na raiz do monorepo, um nível acima de backend/)
 dotenv.config();
+dotenv.config({ path: "../.env" });
 
 type Bindings = {
   AI_API_ENDPOINT?: string;

@@ -10,9 +10,10 @@
     "build": "esbuild src/index.ts --bundle --target=es2022 --platform=node --outfile=dist/index.js"
   },
   "dependencies": {
+    "@hono/node-server": "^2.1.8",
+    "adm-zip": "^0.5.16",
     "dotenv": "^16.4.7",
-    "hono": "^4.7.2",
-    "adm-zip": "^0.5.16"
+    "hono": "^4.7.2"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250224.0",

@@ -1,40 +1,41 @@
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ["./index.html", "./src/**/*.{js,ts,jsx,tsx}"],
-  darkMode: "class",
   theme: {
     extend: {
       colors: {
-        apple: {
-          bg: "#000000",
-          card: "rgba(22, 22, 26, 0.7)",
-          border: "rgba(255, 255, 255, 0.08)",
-          subtle: "rgba(255, 255, 255, 0.04)",
-          blue: "#2997FF",
-          green: "#30D158",
-          orange: "#FF9F0A",
-          red: "#FF453A",
-          gray: "#86868B",
+        ink: {
+          DEFAULT: "#0B0B0C",
+          2: "#121213",
+        },
+        bone: {
+          DEFAULT: "#E9E6DF",
+          dim: "#A3A099",
+          faint: "#6E6B64",
+        },
+        rule: {
+          DEFAULT: "rgba(233,230,223,0.13)",
+          strong: "rgba(233,230,223,0.26)",
+        },
+        signal: {
+          DEFAULT: "#C6F24E",
+          dim: "#8FBF2E",
+        },
+        sev: {
+          critical: "#FF4D2E",
+          high: "#FF8A3D",
+          medium: "#F2C14E",
+          low: "#9BB0C9",
+          info: "#8A877F",
         },
       },
-      backdropBlur: {
-        apple: "20px",
-      },
       fontFamily: {
-        sans: [
-          "-apple-system",
-          "BlinkMacSystemFont",
-          "SF Pro Display",
-          "SF Pro Text",
-          "Helvetica Neue",
-          "Helvetica",
-          "Arial",
-          "sans-serif",
-        ],
+        display: ['"Fraunces"', "ui-serif", "Georgia", "serif"],
+        sans: ['"Archivo"', "ui-sans-serif", "system-ui", "sans-serif"],
+        mono: ['"IBM Plex Mono"', "ui-monospace", "SFMono-Regular", "monospace"],
       },
-      boxShadow: {
-        apple: "0 8px 32px 0 rgba(0, 0, 0, 0.37)",
-        glow: "0 0 40px -10px rgba(41, 151, 255, 0.3)",
+      maxWidth: {
+        measure: "68ch",
       },
     },
   },
