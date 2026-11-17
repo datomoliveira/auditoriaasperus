@@ -176,28 +176,35 @@ app.get("/api/_models", async (c) => {
   ];
 
   const out: Record<string, unknown> = {};
-  for (const model of candidates) {
-    const t0 = Date.now();
-    try {
-      const r = await fetch(`${base}/chat/completions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-        body: JSON.stringify({
-          model,
-          messages: [{ role: "user", content: "Responda apenas: ok" }],
-          max_tokens: 5,
-        }),
-      });
-      const text = await r.text();
-      out[model] = {
-        status: r.status,
-        ms: Date.now() - t0,
-        body: r.ok ? "OK: " + text.slice(0, 120) : text.slice(0, 160),
-      };
-    } catch (e: any) {
-      out[model] = { status: "erro", ms: Date.now() - t0, body: e.message };
-    }
-  }
+  await Promise.all(
+    candidates.map(async (model) => {
+      const t0 = Date.now();
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 20000);
+      try {
+        const r = await fetch(`${base}/chat/completions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+          signal: controller.signal,
+          body: JSON.stringify({
+            model,
+            messages: [{ role: "user", content: "Responda apenas: ok" }],
+            max_tokens: 5,
+          }),
+        });
+        const text = await r.text();
+        out[model] = {
+          status: r.status,
+          ms: Date.now() - t0,
+          body: r.ok ? "OK: " + text.slice(0, 120) : text.slice(0, 160),
+        };
+      } catch (e: any) {
+        out[model] = { status: "erro", ms: Date.now() - t0, body: e.message };
+      } finally {
+        clearTimeout(timer);
+      }
+    }),
+  );
   return c.json(out);
 });
 
