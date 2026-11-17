@@ -97,7 +97,7 @@ export class AgnosticAIRouter {
         name: "Grok (xAI)",
         endpoint: (env.AI_ENDPOINT_GROK || "https://api.x.ai/v1").trim(),
         apiKey: env.AI_API_KEY_GROK.trim(),
-        model: env.AI_MODEL_GROK || "grok-2-latest",
+        model: env.AI_MODEL_GROK || "grok-4.7",
         timeoutMs: 35000,
       };
     }
@@ -110,7 +110,7 @@ export class AgnosticAIRouter {
           env.AI_ENDPOINT_GOOGLE || "https://generativelanguage.googleapis.com/v1beta/openai"
         ).trim(),
         apiKey: env.AI_API_KEY_GOOGLE.trim(),
-        model: env.AI_MODEL_GOOGLE || "gemini-2.0-flash",
+        model: env.AI_MODEL_GOOGLE || "gemini-3.8-flash",
         timeoutMs: 35000,
       };
     }
