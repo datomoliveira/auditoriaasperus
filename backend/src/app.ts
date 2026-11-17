@@ -157,32 +157,45 @@ app.post("/api/audit/url", async (c) => {
   }
 });
 
-// --- DIAGNÓSTICO TEMPORÁRIO: lista os modelos disponíveis nas chaves ---
+// --- DIAGNÓSTICO TEMPORÁRIO: testa de verdade quais modelos respondem ---
 app.get("/api/_models", async (c) => {
   const env = getMergedEnv(c);
-  const targets: [string, string | undefined, string][] = [
-    [
-      "google",
-      env.AI_API_KEY_GOOGLE,
-      `${(env.AI_ENDPOINT_GOOGLE || "https://generativelanguage.googleapis.com/v1beta/openai").replace(/\/$/, "")}/models`,
-    ],
-    ["grok", env.AI_API_KEY_GROK, `${(env.AI_ENDPOINT_GROK || "https://api.x.ai/v1").replace(/\/$/, "")}/models`],
+  const base = (env.AI_ENDPOINT_GOOGLE || "https://generativelanguage.googleapis.com/v1beta/openai").replace(/\/$/, "");
+  const key = env.AI_API_KEY_GOOGLE;
+  if (!key) return c.json({ google: "sem chave" });
+
+  const candidates = [
+    "gemini-flash-latest",
+    "gemini-2.5-flash",
+    "gemini-3.7-flash",
+    "gemini-3.5-flash",
+    "gemini-3.1-flash-lite",
+    "gemini-flash-lite-latest",
+    "gemini-2.5-flash-lite",
+    "gemini-3.8-flash",
   ];
+
   const out: Record<string, unknown> = {};
-  for (const [name, key, url] of targets) {
-    if (!key) {
-      out[name] = "sem chave";
-      continue;
-    }
+  for (const model of candidates) {
+    const t0 = Date.now();
     try {
-      const r = await fetch(url, { headers: { Authorization: `Bearer ${key}` } });
-      const j: any = await r.json();
-      out[name] = {
+      const r = await fetch(`${base}/chat/completions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: "user", content: "Responda apenas: ok" }],
+          max_tokens: 5,
+        }),
+      });
+      const text = await r.text();
+      out[model] = {
         status: r.status,
-        models: (j?.data || j?.models || []).map((m: any) => m.id || m.name).slice(0, 80),
+        ms: Date.now() - t0,
+        body: r.ok ? "OK: " + text.slice(0, 120) : text.slice(0, 160),
       };
     } catch (e: any) {
-      out[name] = "erro: " + e.message;
+      out[model] = { status: "erro", ms: Date.now() - t0, body: e.message };
     }
   }
   return c.json(out);
