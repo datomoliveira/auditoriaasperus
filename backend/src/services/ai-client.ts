@@ -68,9 +68,14 @@ export class AgnosticAIRouter {
     this.providers = this.discoverAndBuildProviderChain(env);
 
     if (this.providers.length === 0) {
+      // Detalhe técnico só no console; o usuário vê um aviso claro e sem jargão.
+      console.error(
+        "[AIRouter Error] Nenhum provedor de IA configurado. " +
+          "Defina ao menos uma chave (AI_API_KEY_GROK, AI_API_KEY_GOOGLE ou AI_API_KEY_OLLAMA).",
+      );
       throw new Error(
-        "[AIRouter Error] Nenhum provedor de IA configurado! " +
-        "Configure ao menos um provedor no .env (ex: GROQ_API_KEY, OLLAMA_ENDPOINT, ou AI_API_ENDPOINT)."
+        "Nenhuma inteligência artificial conseguiu concluir a verificação. " +
+          "Todas as opções configuradas falharam — tente novamente em alguns instantes.",
       );
     }
   }
@@ -81,6 +86,34 @@ export class AgnosticAIRouter {
    */
   private discoverAndBuildProviderChain(env: Record<string, string | undefined>): AIProviderConfig[] {
     const registry: Record<string, AIProviderConfig | null> = {};
+
+    // Provedores nomeados por sufixo: AI_API_KEY_<PROVEDOR>
+    // Estes são os nomes usados como secrets no Cloudflare:
+    // AI_API_KEY_GROK, AI_API_KEY_GOOGLE, AI_API_KEY_OLLAMA.
+
+    // Grok (xAI) — AI_API_KEY_GROK
+    if (env.AI_API_KEY_GROK) {
+      registry["grok"] = {
+        name: "Grok (xAI)",
+        endpoint: (env.AI_ENDPOINT_GROK || "https://api.x.ai/v1").trim(),
+        apiKey: env.AI_API_KEY_GROK.trim(),
+        model: env.AI_MODEL_GROK || "grok-2-latest",
+        timeoutMs: 35000,
+      };
+    }
+
+    // Google Gemini — AI_API_KEY_GOOGLE (endpoint compatível com OpenAI)
+    if (env.AI_API_KEY_GOOGLE) {
+      registry["google"] = {
+        name: "Google Gemini",
+        endpoint: (
+          env.AI_ENDPOINT_GOOGLE || "https://generativelanguage.googleapis.com/v1beta/openai"
+        ).trim(),
+        apiKey: env.AI_API_KEY_GOOGLE.trim(),
+        model: env.AI_MODEL_GOOGLE || "gemini-2.0-flash",
+        timeoutMs: 35000,
+      };
+    }
 
     // 1. Provedor Groq (Gratuito e Ultra-rápido)
     if (env.GROQ_API_KEY) {
@@ -93,14 +126,17 @@ export class AgnosticAIRouter {
       };
     }
 
-    // 2. Provedor Ollama (100% Local, Offline e Sem Limite de Tokens)
-    const ollamaEndpoint = env.OLLAMA_ENDPOINT || (env.ENABLE_OLLAMA === "true" ? "http://localhost:11434/v1" : undefined);
-    if (ollamaEndpoint) {
+    // 2. Provedor Ollama (Local/Offline ou Cloud) — aceita AI_API_KEY_OLLAMA
+    const ollamaEndpoint =
+      env.AI_ENDPOINT_OLLAMA ||
+      env.OLLAMA_ENDPOINT ||
+      (env.ENABLE_OLLAMA === "true" ? "http://localhost:11434/v1" : undefined);
+    if (ollamaEndpoint || env.AI_API_KEY_OLLAMA) {
       registry["ollama"] = {
-        name: "Ollama Local (Offline)",
-        endpoint: ollamaEndpoint.trim(),
-        apiKey: env.OLLAMA_API_KEY || "ollama",
-        model: env.OLLAMA_MODEL || "deepseek-coder:6.7b",
+        name: "Ollama",
+        endpoint: (ollamaEndpoint || "http://localhost:11434/v1").trim(),
+        apiKey: env.AI_API_KEY_OLLAMA?.trim() || env.OLLAMA_API_KEY || "ollama",
+        model: env.AI_MODEL_OLLAMA || env.OLLAMA_MODEL || "llama3.2",
         timeoutMs: 60000, // Modelos locais podem demandar mais tempo
       };
     }
@@ -164,7 +200,7 @@ export class AgnosticAIRouter {
     // Se o usuário definiu AI_ROUTING_CHAIN="groq,ollama,deepseek", respeita a ordem exata.
     const chainConfig = env.AI_ROUTING_CHAIN
       ? env.AI_ROUTING_CHAIN.split(",").map((k) => k.trim().toLowerCase())
-      : ["groq", "ollama", "deepseek", "openrouter", "cloudflare", "custom_primary", "custom_fallback"];
+      : ["grok", "google", "ollama", "groq", "deepseek", "openrouter", "cloudflare", "custom_primary", "custom_fallback"];
 
     const activeChain: AIProviderConfig[] = [];
     for (const key of chainConfig) {
@@ -299,12 +335,19 @@ ${input.systemInstructions}
       }
     }
 
-    // Se todos os provedores falharem
+    // Se todos os provedores falharem: registra o detalhe técnico no console
+    // (nunca exposto ao usuário) e devolve um aviso claro, sem nomes de modelo.
+    console.error(
+      `[AI Router Failover Esgotado] Todos os ${this.providers.length} provedores falharam:\n` +
+        routingLogs
+          .map((log) => ` - ${log.providerName} (${log.model}): ${log.error} (${log.durationMs}ms)`)
+          .join("\n") +
+        `\nÚltimo erro: ${lastError?.message}`,
+    );
+
     throw new Error(
-      `[AI Router Failover Esgotado] Todos os ${this.providers.length} provedores configurados falharam na auditoria.\n` +
-      `Histórico de tentativas:\n` +
-      routingLogs.map((log) => ` - ${log.providerName}: ${log.error} (${log.durationMs}ms)`).join("\n") +
-      `\nÚltimo erro capturado: ${lastError?.message}`
+      "Nenhuma inteligência artificial conseguiu concluir a verificação. " +
+        "Todas as opções configuradas falharam — tente novamente em alguns instantes.",
     );
   }
 

@@ -19,15 +19,6 @@ export interface SecurityIssue {
   remediatedCodeSnippet?: string;
 }
 
-export interface ProviderAttemptLog {
-  providerName: string;
-  endpoint: string;
-  model: string;
-  status: "success" | "failed";
-  durationMs: number;
-  error?: string;
-}
-
 export interface AuditReport {
   score: number;
   summary: string;
@@ -38,10 +29,6 @@ export interface AuditReport {
   lowCount: number;
   issues: SecurityIssue[];
   auditedFilesCount: number;
-  providerUsed?: string;
-  modelUsed?: string;
-  failoverOccurred?: boolean;
-  routingLogs?: ProviderAttemptLog[];
   timestamp: string;
 }
 

@@ -18,26 +18,6 @@ export const demoReport: AuditReport = {
   mediumCount: 2,
   lowCount: 1,
   auditedFilesCount: 24,
-  providerUsed: "Groq (Llama 3.3 70B)",
-  modelUsed: "llama-3.3-70b-versatile",
-  failoverOccurred: true,
-  routingLogs: [
-    {
-      providerName: "Ollama Local (Offline)",
-      endpoint: "http://localhost:11434/v1",
-      model: "deepseek-coder:6.7b",
-      status: "failed",
-      durationMs: 612,
-      error: "connect ECONNREFUSED 127.0.0.1:11434",
-    },
-    {
-      providerName: "Groq (Llama 3.3 70B)",
-      endpoint: "https://api.groq.com/openai/v1",
-      model: "llama-3.3-70b-versatile",
-      status: "success",
-      durationMs: 1840,
-    },
-  ],
   timestamp: new Date().toISOString(),
   issues: [
     {

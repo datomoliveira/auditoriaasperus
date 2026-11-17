@@ -13,6 +13,15 @@ type Bindings = {
   AI_API_ENDPOINT?: string;
   AI_API_KEY?: string;
   AI_MODEL?: string;
+  AI_API_KEY_GROK?: string;
+  AI_ENDPOINT_GROK?: string;
+  AI_MODEL_GROK?: string;
+  AI_API_KEY_GOOGLE?: string;
+  AI_ENDPOINT_GOOGLE?: string;
+  AI_MODEL_GOOGLE?: string;
+  AI_API_KEY_OLLAMA?: string;
+  AI_ENDPOINT_OLLAMA?: string;
+  AI_MODEL_OLLAMA?: string;
   GROQ_API_KEY?: string;
   GROQ_ENDPOINT?: string;
   GROQ_MODEL?: string;

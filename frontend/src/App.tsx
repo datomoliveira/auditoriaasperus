@@ -11,7 +11,6 @@ import AuditConsole from "./components/AuditConsole";
 import ScanningOverlay from "./components/ScanningOverlay";
 import ScoreReadout from "./components/ScoreReadout";
 import SeverityBreakdown from "./components/SeverityBreakdown";
-import RoutingLog from "./components/RoutingLog";
 import IssueCard from "./components/IssueCard";
 
 // three.js é pesado: a cena 3D entra sob demanda, fora do bundle inicial.
@@ -92,26 +91,42 @@ export function App() {
   }, []);
 
   // Consulta o roteador de IA no backend (indicador do cabeçalho).
+  // Roda ao abrir, a cada 12s e ao voltar o foco para a aba — assim o aviso
+  // se recupera sozinho depois de um reinício do servidor, sem recarregar.
   useEffect(() => {
     let alive = true;
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 4000);
-    fetch(`${API_BASE_URL}/health`, { signal: controller.signal })
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("offline"))))
-      .then((data) =>
-        alive &&
+
+    const checkHealth = async () => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 4000);
+      try {
+        const r = await fetch(`${API_BASE_URL}/health`, { signal: controller.signal });
+        if (!r.ok) throw new Error("offline");
+        const data = await r.json();
+        if (!alive) return;
         setHealth({
           online: true,
           provider: data?.primaryProvider ?? null,
           count: Number(data?.providersCount ?? 0),
-        }),
-      )
-      .catch(() => alive && setHealth({ online: false, provider: null, count: 0 }))
-      .finally(() => clearTimeout(timer));
+        });
+      } catch {
+        if (alive) setHealth({ online: false, provider: null, count: 0 });
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+
+    void checkHealth();
+    const interval = window.setInterval(checkHealth, 12000);
+    const recheck = () => void checkHealth();
+    window.addEventListener("focus", recheck);
+    document.addEventListener("visibilitychange", recheck);
+
     return () => {
       alive = false;
-      controller.abort();
-      clearTimeout(timer);
+      window.clearInterval(interval);
+      window.removeEventListener("focus", recheck);
+      document.removeEventListener("visibilitychange", recheck);
     };
   }, []);
 
@@ -287,7 +302,8 @@ export function App() {
     if (!health) return { text: "verificando…", color: "var(--bone-faint)" };
     if (!health.online) return { text: "servidor fora do ar", color: "var(--sev-critical)" };
     if (health.count === 0) return { text: "sem IA conectada", color: "var(--sev-medium)" };
-    return { text: health.provider ?? "IA conectada", color: "var(--signal)" };
+    // Nunca revelamos qual IA está por trás — apenas que a verificação está pronta.
+    return { text: "verificação pronta", color: "var(--signal)" };
   })();
 
   /* ------------------------------------------------------------------- view */
@@ -539,12 +555,11 @@ export function App() {
             </div>
 
             {/* metadados */}
-            <dl className="mt-8 grid grid-cols-2 gap-x-8 gap-y-5 border-t border-rule pt-6 sm:grid-cols-4">
+            <dl className="mt-8 grid grid-cols-2 gap-x-8 gap-y-5 border-t border-rule pt-6 sm:grid-cols-3">
               {[
                 { k: "quando", v: new Date(report.timestamp).toLocaleString("pt-BR") },
                 { k: "arquivos analisados", v: String(report.auditedFilesCount) },
                 { k: "problemas encontrados", v: String(report.totalIssues) },
-                { k: "inteligência artificial", v: report.providerUsed ?? "—" },
               ].map((m) => (
                 <div key={m.k}>
                   <dt className="data-label">{m.k}</dt>
@@ -553,28 +568,20 @@ export function App() {
               ))}
             </dl>
 
-            {/* score + severidade + rota */}
+            {/* score + severidade */}
             <div className="mt-14 grid gap-12 lg:grid-cols-12">
-              <div className="lg:col-span-5">
+              <div className="lg:col-span-6">
                 <span className="data-label">nota de segurança</span>
                 <div className="mt-5">
                   <ScoreReadout score={report.score} />
                 </div>
               </div>
 
-              <div className="lg:col-span-4">
+              <div className="lg:col-span-6">
                 <span className="data-label">problemas por gravidade</span>
                 <div className="mt-4">
                   <SeverityBreakdown report={report} active={filter} onSelect={setFilter} />
                 </div>
-              </div>
-
-              <div className="lg:col-span-3">
-                <RoutingLog
-                  logs={report.routingLogs}
-                  failoverOccurred={report.failoverOccurred}
-                  providerUsed={report.providerUsed}
-                />
               </div>
             </div>
 
