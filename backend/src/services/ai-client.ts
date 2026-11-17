@@ -57,6 +57,8 @@ export interface AIProviderConfig {
   endpoint: string;
   apiKey?: string;
   model: string;
+  /** Modelos alternativos do mesmo provedor, tentados em ordem se o principal falhar. */
+  fallbackModels?: string[];
   timeoutMs?: number;
 }
 
@@ -98,6 +100,7 @@ export class AgnosticAIRouter {
         endpoint: (env.AI_ENDPOINT_GROK || "https://api.x.ai/v1").trim(),
         apiKey: env.AI_API_KEY_GROK.trim(),
         model: env.AI_MODEL_GROK || "grok-4.7",
+        fallbackModels: ["grok-4.6", "grok-4.5"],
         timeoutMs: 35000,
       };
     }
@@ -110,7 +113,10 @@ export class AgnosticAIRouter {
           env.AI_ENDPOINT_GOOGLE || "https://generativelanguage.googleapis.com/v1beta/openai"
         ).trim(),
         apiKey: env.AI_API_KEY_GOOGLE.trim(),
-        model: env.AI_MODEL_GOOGLE || "gemini-3.8-flash",
+        model: env.AI_MODEL_GOOGLE || "gemini-3.5-flash",
+        // Modelos costumam ficar saturados (503) ou sair de linha; tentamos
+        // alternativas automaticamente antes de desistir do provedor.
+        fallbackModels: ["gemini-3.1-flash-lite", "gemini-flash-lite-latest"],
         timeoutMs: 35000,
       };
     }
@@ -285,53 +291,65 @@ ${input.systemInstructions}
 
     for (let i = 0; i < this.providers.length; i++) {
       const provider = this.providers[i];
-      const startTime = Date.now();
-      console.log(
-        `[AI Router] [Tentativa ${i + 1}/${this.providers.length}] Enviando auditoria para: ${provider.name} (${provider.model})...`
-      );
+      const models = this.modelsFor(provider);
 
-      try {
-        const result = await this.executeSingleProvider(provider, systemPrompt, userPrompt);
-        const durationMs = Date.now() - startTime;
-
-        routingLogs.push({
-          providerName: provider.name,
-          endpoint: provider.endpoint,
-          model: provider.model,
-          status: "success",
-          durationMs,
-        });
-
-        console.log(`[AI Router] Sucesso via ${provider.name} em ${durationMs}ms!`);
-
-        return {
-          ...result,
-          auditedFilesCount: input.filesContent.length,
-          providerUsed: provider.name,
-          modelUsed: provider.model,
-          failoverOccurred: i > 0, // Houve chaveamento se não foi o primeiro
-          routingLogs,
-          timestamp: new Date().toISOString(),
-        };
-      } catch (err: any) {
-        const durationMs = Date.now() - startTime;
-        const errMsg = err.message || "Erro desconhecido na requisição";
-
-        console.warn(
-          `[AI Router] ⚠️ Falha no provedor ${provider.name} (${durationMs}ms): ${errMsg}. ` +
-          (i < this.providers.length - 1 ? `Chaveando para o próximo provedor...` : `Todos os provedores falharam.`)
+      for (let m = 0; m < models.length; m++) {
+        const model = models[m];
+        const startTime = Date.now();
+        console.log(
+          `[AI Router] [Provedor ${i + 1}/${this.providers.length} | Modelo ${m + 1}/${models.length}] ` +
+            `Enviando auditoria para: ${provider.name} (${model})...`
         );
 
-        routingLogs.push({
-          providerName: provider.name,
-          endpoint: provider.endpoint,
-          model: provider.model,
-          status: "failed",
-          durationMs,
-          error: errMsg,
-        });
+        try {
+          const result = await this.executeSingleProvider(provider, model, systemPrompt, userPrompt);
+          const durationMs = Date.now() - startTime;
 
-        lastError = err;
+          routingLogs.push({
+            providerName: provider.name,
+            endpoint: provider.endpoint,
+            model,
+            status: "success",
+            durationMs,
+          });
+
+          console.log(`[AI Router] Sucesso via ${provider.name} (${model}) em ${durationMs}ms!`);
+
+          return {
+            ...result,
+            auditedFilesCount: input.filesContent.length,
+            providerUsed: provider.name,
+            modelUsed: model,
+            failoverOccurred: i > 0 || m > 0, // Houve chaveamento se não foi a primeira opção
+            routingLogs,
+            timestamp: new Date().toISOString(),
+          };
+        } catch (err: any) {
+          const durationMs = Date.now() - startTime;
+          const errMsg = err.message || "Erro desconhecido na requisição";
+          const hasMoreModels = m < models.length - 1;
+          const hasMoreProviders = i < this.providers.length - 1;
+
+          console.warn(
+            `[AI Router] ⚠️ Falha em ${provider.name} (${model}) (${durationMs}ms): ${errMsg}. ` +
+              (hasMoreModels
+                ? `Tentando outro modelo do mesmo provedor...`
+                : hasMoreProviders
+                  ? `Chaveando para o próximo provedor...`
+                  : `Todos os provedores falharam.`)
+          );
+
+          routingLogs.push({
+            providerName: provider.name,
+            endpoint: provider.endpoint,
+            model,
+            status: "failed",
+            durationMs,
+            error: errMsg,
+          });
+
+          lastError = err;
+        }
       }
     }
 
@@ -351,11 +369,21 @@ ${input.systemInstructions}
     );
   }
 
+  /** Lista ordenada de modelos a tentar num provedor (principal + alternativos). */
+  private modelsFor(provider: AIProviderConfig): string[] {
+    const list = [provider.model, ...(provider.fallbackModels || [])]
+      .flatMap((m) => String(m).split(","))
+      .map((m) => m.trim())
+      .filter(Boolean);
+    return [...new Set(list)];
+  }
+
   /**
    * Chamada HTTP com timeout individual e tratamento de parsing
    */
   private async executeSingleProvider(
     provider: AIProviderConfig,
+    model: string,
     systemPrompt: string,
     userPrompt: string
   ): Promise<Omit<AuditReportResult, "auditedFilesCount" | "providerUsed" | "modelUsed" | "failoverOccurred" | "routingLogs" | "timestamp">> {
@@ -380,7 +408,7 @@ ${input.systemInstructions}
         headers,
         signal: controller.signal,
         body: JSON.stringify({
-          model: provider.model,
+          model,
           messages: [
             { role: "system", content: systemPrompt },
             { role: "user", content: userPrompt },
