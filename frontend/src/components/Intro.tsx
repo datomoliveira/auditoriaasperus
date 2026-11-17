@@ -2,10 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { usePrefersReducedMotion } from "../hooks/useCountUp";
 
 const LINES = [
-  "inicializando núcleo",
-  "montando sandbox isolada",
-  "carregando assinaturas owasp",
-  "conectando roteador de ia",
+  "preparando tudo",
+  "separando um espaço seguro",
+  "carregando a lista de falhas conhecidas",
+  "conectando a inteligência artificial",
   "pronto",
 ];
 
@@ -66,10 +66,10 @@ export function Intro({ onDone }: IntroProps) {
         }
       }}
       role="status"
-      aria-label="Inicializando o Sentinel"
+      aria-label="Preparando o Sentinel"
     >
       <div className="flex items-start justify-between">
-        <span className="data-label">Sentinel / inicialização</span>
+        <span className="data-label">Sentinel / preparando</span>
         <span className="data-label tabular">{String(progress).padStart(3, "0")}%</span>
       </div>
 

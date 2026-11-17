@@ -53,7 +53,7 @@ export function SeverityBreakdown({ report, active, onSelect }: SeverityBreakdow
                 >
                   {meta.label}
                 </span>
-                {isActive && <span className="data-label text-signal">filtro ativo</span>}
+                {isActive && <span className="data-label text-signal">selecionado</span>}
                 <span className="data-value ml-auto tabular">{String(count).padStart(2, "0")}</span>
               </button>
             </li>

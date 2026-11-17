@@ -107,25 +107,46 @@ app.post("/api/audit/zip", async (c) => {
 });
 
 /**
- * Endpoint de Auditoria via URL de Repositório Git Público
+ * Endpoint de Auditoria via link: repositório git OU arquivo .zip comum
  */
 app.post("/api/audit/url", async (c) => {
   try {
     const { url } = await c.req.json<{ url: string }>();
 
-    if (!url || typeof url !== "string" || !url.startsWith("http")) {
-      return c.json({ error: "URL de repositório inválida. Ex: https://github.com/owner/repo" }, 400);
+    if (!url || typeof url !== "string" || !/^https?:\/\//i.test(url)) {
+      return c.json(
+        {
+          error:
+            "Link inválido. Use um endereço começando com http:// ou https:// " +
+            "(ex.: https://github.com/usuario/projeto ou https://site.com/projeto.zip).",
+        },
+        400,
+      );
     }
 
     const runId = `audit-url-${Date.now()}-${Math.random().toString(36).substring(7)}`;
-
     const sandbox = new AuditSandbox();
-    const result = await sandbox.executeAudit({
-      runId,
-      sourceType: "git",
-      repoUrl: url,
-      customEnv: getMergedEnv(c),
-    });
+
+    // Link direto para um .zip → baixa e analisa como projeto compactado.
+    // Caso contrário, tratamos como repositório git e clonamos.
+    const isZipLink = /\.zip(\?|#|$)/i.test(url);
+    const isGitHost =
+      /(^|\.)(github\.com|gitlab\.com|bitbucket\.org|codeberg\.org|sr\.ht|gitea\.com)\b/i.test(url);
+
+    const result =
+      isZipLink || !isGitHost
+        ? await sandbox.executeAudit({
+            runId,
+            sourceType: "zip",
+            zipBuffer: await sandbox.downloadZip(url),
+            customEnv: getMergedEnv(c),
+          })
+        : await sandbox.executeAudit({
+            runId,
+            sourceType: "git",
+            repoUrl: url,
+            customEnv: getMergedEnv(c),
+          });
 
     return c.json({ success: true, runId, ...result });
   } catch (error: any) {

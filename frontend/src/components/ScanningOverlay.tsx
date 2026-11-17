@@ -1,10 +1,10 @@
 import { cn } from "../lib/cn";
 
 const STAGES = [
-  "Isolando repositório em sandbox",
-  "Análise estática · OWASP Top 10",
-  "Detecção de segredos e dependências",
-  "Gerando patches de correção",
+  "Criando um espaço seguro para a análise",
+  "Procurando falhas de segurança conhecidas",
+  "Procurando senhas e chaves expostas",
+  "Preparando as correções",
 ];
 
 interface ScanningOverlayProps {
@@ -12,10 +12,10 @@ interface ScanningOverlayProps {
 }
 
 function activeIndex(stage: string) {
-  if (stage.includes("Isolando")) return 0;
-  if (stage.includes("estática")) return 1;
-  if (stage.includes("segredos")) return 2;
-  if (stage.includes("patches")) return 3;
+  if (stage.includes("Criando")) return 0;
+  if (stage.includes("falhas")) return 1;
+  if (stage.includes("senhas")) return 2;
+  if (stage.includes("correções")) return 3;
   return 0;
 }
 
@@ -29,17 +29,17 @@ export function ScanningOverlay({ stage }: ScanningOverlayProps) {
   return (
     <div className="animate-fade fixed inset-0 z-[90] flex flex-col justify-between bg-ink px-6 py-8 sm:px-10 sm:py-10">
       <div className="flex items-start justify-between">
-        <span className="data-label">Sentinel / auditoria em execução</span>
+        <span className="data-label">Sentinel / analisando seu projeto</span>
         <span className="data-label flex items-center gap-2">
           <span className="animate-pulse-soft h-1.5 w-1.5 rounded-full bg-signal" />
-          processando
+          em andamento
         </span>
       </div>
 
       <div className="max-w-3xl">
-        <span className="data-label">etapa atual</span>
+        <span className="data-label">o que está acontecendo agora</span>
         <p className="display mt-3 text-[1.75rem] leading-tight text-bone sm:text-[2.25rem]">
-          {stage || "inicializando"}
+          {stage || "começando"}
           <span className="animate-blink ml-1 text-signal">_</span>
         </p>
 
@@ -66,7 +66,7 @@ export function ScanningOverlay({ stage }: ScanningOverlayProps) {
                   {s}
                 </span>
                 <span className="data-label ml-auto shrink-0">
-                  {done ? "ok" : current ? "ativo" : "na fila"}
+                  {done ? "feito" : current ? "agora" : "na fila"}
                 </span>
               </li>
             );
@@ -76,7 +76,7 @@ export function ScanningOverlay({ stage }: ScanningOverlayProps) {
 
       <div className="flex items-end justify-between gap-6">
         <span className="data-label max-w-md leading-relaxed">
-          o código é isolado em sandbox descartável e descartado ao fim da varredura
+          seu projeto fica guardado à parte e é apagado assim que a análise termina
         </span>
         <div className="relative hidden h-20 w-20 shrink-0 sm:block">
           <span className="absolute inset-0 rounded-full border border-rule" />

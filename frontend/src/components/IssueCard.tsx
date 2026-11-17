@@ -1,6 +1,7 @@
 import { useState, type MouseEvent } from "react";
 import type { SecurityIssue } from "../types";
 import { SEVERITY_META } from "../lib/severity";
+import { categoryLabel } from "../lib/category";
 import { cn } from "../lib/cn";
 
 interface IssueCardProps {
@@ -65,7 +66,7 @@ export function IssueCard({ issue, index, expanded, onToggle }: IssueCardProps) 
             <span aria-hidden="true">/</span>
             <span>{issue.id}</span>
             <span aria-hidden="true">/</span>
-            <span>{issue.category}</span>
+            <span>{categoryLabel(issue.category)}</span>
           </span>
         </span>
 
@@ -80,14 +81,14 @@ export function IssueCard({ issue, index, expanded, onToggle }: IssueCardProps) 
       <div className={cn("pb-8 pl-[calc(2ch+1rem)]", expanded ? "block" : "hidden", "print:block")}>
         <div className="grid gap-x-12 gap-y-6 sm:grid-cols-2">
           <div>
-            <span className="data-label">diagnóstico</span>
+            <span className="data-label">o que encontramos</span>
             <p className="mt-2 max-w-measure text-[13.5px] leading-relaxed text-bone-dim">
               {issue.description}
             </p>
           </div>
           <div>
             <span className="data-label" style={{ color: "var(--signal)" }}>
-              recomendação
+              como corrigir
             </span>
             <p className="mt-2 max-w-measure text-[13.5px] leading-relaxed text-bone-dim">
               {issue.recommendation}
@@ -98,7 +99,7 @@ export function IssueCard({ issue, index, expanded, onToggle }: IssueCardProps) 
         {issue.remediatedCodeSnippet && (
           <div className="mt-7 border border-rule-strong print-code">
             <div className="flex items-center justify-between border-b border-rule px-4 py-2.5">
-              <span className="data-label">patch de correção</span>
+              <span className="data-label">correção pronta para usar</span>
               <button
                 type="button"
                 onClick={copy}

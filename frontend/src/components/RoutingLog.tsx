@@ -10,8 +10,8 @@ export function RoutingLog({ logs, failoverOccurred, providerUsed }: RoutingLogP
   if (!logs || logs.length === 0) {
     return (
       <div>
-        <span className="data-label">rota de ia</span>
-        <p className="data-value mt-2">{providerUsed ?? "não configurada"}</p>
+        <span className="data-label">inteligência artificial usada</span>
+        <p className="data-value mt-2">{providerUsed ?? "não conectada"}</p>
       </div>
     );
   }
@@ -19,9 +19,9 @@ export function RoutingLog({ logs, failoverOccurred, providerUsed }: RoutingLogP
   return (
     <div>
       <div className="flex items-center justify-between">
-        <span className="data-label">rota de ia</span>
+        <span className="data-label">inteligência artificial</span>
         <span className="data-label" style={{ color: failoverOccurred ? "#F2C14E" : undefined }}>
-          {failoverOccurred ? "failover" : "rota primária"}
+          {failoverOccurred ? "usou uma alternativa" : "primeira opção"}
         </span>
       </div>
 
@@ -42,7 +42,7 @@ export function RoutingLog({ logs, failoverOccurred, providerUsed }: RoutingLogP
                   className="data-label"
                   style={{ color: log.status === "success" ? undefined : "#FF4D2E" }}
                 >
-                  {log.status === "success" ? "ok" : "falha"}
+                  {log.status === "success" ? "funcionou" : "falhou"}
                 </span>
                 <p className="data-value mt-1 tabular">{log.durationMs}ms</p>
               </div>

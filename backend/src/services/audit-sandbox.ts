@@ -114,6 +114,40 @@ export class AuditSandbox {
   }
 
   /**
+   * Baixa um arquivo .zip a partir de um link comum (http/https).
+   * Valida a assinatura do arquivo antes de entregar para a extração.
+   */
+  async downloadZip(url: string): Promise<Buffer> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30000);
+    try {
+      const res = await fetch(url, { redirect: "follow", signal: controller.signal });
+      if (!res.ok) {
+        throw new Error(`Não foi possível baixar o arquivo (HTTP ${res.status}).`);
+      }
+      const buffer = Buffer.from(await res.arrayBuffer());
+      if (buffer.length === 0) {
+        throw new Error("O link não retornou nenhum conteúdo.");
+      }
+      // Assinatura ZIP: "PK" (0x50 0x4b).
+      const isZip = buffer[0] === 0x50 && buffer[1] === 0x4b;
+      if (!isZip) {
+        throw new Error(
+          "O link não aponta para um arquivo .zip. Use um repositório git ou um link direto para um .zip.",
+        );
+      }
+      return buffer;
+    } catch (err: any) {
+      if (err?.name === "AbortError") {
+        throw new Error("O download demorou demais e foi interrompido.");
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /**
    * Orquestra a skill de auditoria no diretório da sandbox
    */
   private orchestrateSecuritySkill(sandboxPath: string): string {

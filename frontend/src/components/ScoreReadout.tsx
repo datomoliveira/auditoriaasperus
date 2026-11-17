@@ -5,10 +5,10 @@ interface ScoreReadoutProps {
 }
 
 function verdict(score: number) {
-  if (score >= 85) return { label: "Blindado", color: "#E9E6DF" };
-  if (score >= 70) return { label: "Atenção", color: "#F2C14E" };
-  if (score >= 50) return { label: "Vulnerável", color: "#FF8A3D" };
-  return { label: "Crítico", color: "#FF4D2E" };
+  if (score >= 85) return { label: "Bem protegido", color: "#E9E6DF" };
+  if (score >= 70) return { label: "Precisa de atenção", color: "#F2C14E" };
+  if (score >= 50) return { label: "Com problemas", color: "#FF8A3D" };
+  return { label: "Muito vulnerável", color: "#FF4D2E" };
 }
 
 export function ScoreReadout({ score }: ScoreReadoutProps) {
@@ -21,11 +21,11 @@ export function ScoreReadout({ score }: ScoreReadoutProps) {
         <span className="display text-[5.5rem] font-medium leading-[0.85] tabular text-bone">
           {animated}
         </span>
-        <span className="data-label mb-2">/ 100</span>
+        <span className="data-label mb-2">de 100</span>
       </div>
 
       <div className="mt-6 flex items-center gap-3">
-        <span className="data-label">veredito</span>
+        <span className="data-label">situação geral</span>
         <span className="text-[13px] font-medium" style={{ color: v.color }}>
           {v.label}
         </span>

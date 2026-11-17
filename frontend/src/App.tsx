@@ -5,6 +5,7 @@ import type { AuditReport, Severity, SourceTab } from "./types";
 import { demoReport } from "./data/demoReport";
 import { SEVERITY_META, SEVERITY_ORDER } from "./lib/severity";
 import { cn } from "./lib/cn";
+import { collectDroppedEntries, entriesFromFileList, zipEntries, type UploadEntry } from "./lib/upload";
 import Intro from "./components/Intro";
 import AuditConsole from "./components/AuditConsole";
 import ScanningOverlay from "./components/ScanningOverlay";
@@ -24,35 +25,35 @@ const API_BASE_URL =
 
 const CAPABILITIES = [
   {
-    title: "Análise estática OWASP",
-    body: "Varredura de injeções, XSS, SSRF e quebra de autorização nas rotas e nos fluxos de dados.",
+    title: "Encontra falhas de segurança",
+    body: "Procura os problemas mais comuns que deixam um sistema aberto para invasores — como brechas de login e dados acessíveis por engano.",
   },
   {
-    title: "Detector de segredos",
-    body: "Encontra chaves de API, tokens e senhas expostos — inclusive no bundle entregue ao cliente.",
+    title: "Acha senhas e chaves expostas",
+    body: "Detecta senhas, chaves de acesso e outros segredos que ficaram à mostra no código. Se vazarem, podem dar acesso total ao seu sistema.",
   },
   {
-    title: "Dependências e configuração",
-    body: "Audita versões vulneráveis, CORS, CSP e cabeçalhos de segurança ausentes.",
+    title: "Avisa sobre programas desatualizados",
+    body: "Aponta bibliotecas antigas com falhas já conhecidas e ajustes de segurança que estão faltando no seu projeto.",
   },
   {
-    title: "Patches de correção",
-    body: "Cada achado vem com a correção sugerida, pronta para copiar e commitar.",
+    title: "Diz como corrigir",
+    body: "Para cada problema, mostra em palavras simples o que está errado e como resolver — com a correção já pronta para usar.",
   },
 ];
 
 const PROCESS = [
   {
-    title: "Isolamento",
-    body: "O projeto entra em uma sandbox descartável e é descartado ao fim da varredura.",
+    title: "Você envia seu projeto",
+    body: "É só mandar a pasta do seu projeto (ou o arquivo .zip dela). Ele fica guardado em um espaço separado e é apagado assim que a análise termina.",
   },
   {
-    title: "Auditoria por IA",
-    body: "Um roteador multi-provedor, com failover automático, analisa o código.",
+    title: "A análise acontece",
+    body: "Uma inteligência artificial lê o seu código e procura os pontos fracos que um invasor poderia aproveitar.",
   },
   {
-    title: "Dossiê",
-    body: "Pontuação, severidades, patches e rota de IA registrados em um relatório exportável.",
+    title: "Você recebe o resultado",
+    body: "Uma nota de segurança, a lista de problemas por gravidade e como corrigir cada um. Dá para salvar tudo em PDF.",
   },
 ];
 
@@ -75,8 +76,10 @@ export function App() {
   const [filter, setFilter] = useState<Severity | "all">("all");
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [health, setHealth] = useState<HealthState | null>(null);
+  const [isPreparing, setIsPreparing] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
   const consoleRef = useRef<HTMLDivElement>(null);
 
   const handleIntroDone = useCallback(() => setIntroDone(true), []);
@@ -113,26 +116,62 @@ export function App() {
   }, []);
 
   /* ---------------------------------------------------------------- upload */
-  const acceptFile = (file?: File) => {
-    if (!file) return;
-    if (file.name.toLowerCase().endsWith(".zip")) {
-      setSelectedFile(file);
-      setErrorMsg(null);
-    } else {
-      setErrorMsg("Formato inválido — envie um arquivo .zip do projeto.");
+  // Recebe uma pasta inteira ou vários arquivos: compacta tudo em um .zip no
+  // próprio navegador e envia como um único arquivo — sem o usuário precisar
+  // compactar nada à mão.
+  const acceptEntries = async (entries: UploadEntry[]) => {
+    if (entries.length === 0) return;
+    setErrorMsg(null);
+
+    // Um único arquivo .zip já pronto: envia direto.
+    if (entries.length === 1 && entries[0].path.toLowerCase().endsWith(".zip")) {
+      setSelectedFile(entries[0].file);
+      return;
+    }
+
+    setIsPreparing(true);
+    try {
+      const first = entries[0]?.path ?? "projeto";
+      const root = first.split("/")[0].replace(/\.zip$/i, "") || "projeto";
+      const zipped = await zipEntries(entries, `${root}.zip`);
+      setSelectedFile(zipped);
+    } catch {
+      setErrorMsg("Não foi possível preparar os arquivos. Tente escolher a pasta novamente.");
+    } finally {
+      setIsPreparing(false);
     }
   };
 
-  const onFileChange = (e: ChangeEvent<HTMLInputElement>) => acceptFile(e.target.files?.[0]);
+  const onFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.name.toLowerCase().endsWith(".zip")) {
+        setSelectedFile(file);
+        setErrorMsg(null);
+      } else {
+        setErrorMsg("Escolha um arquivo .zip ou use o botão “Escolher pasta”.");
+      }
+    }
+    e.target.value = "";
+  };
+
+  const onFolderChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const list = e.target.files;
+    if (list && list.length) void acceptEntries(entriesFromFileList(list));
+    e.target.value = "";
+  };
+
   const onDragOver = (e: DragEvent) => {
     e.preventDefault();
     setIsDragging(true);
   };
   const onDragLeave = () => setIsDragging(false);
-  const onDrop = (e: DragEvent) => {
+  const onDrop = async (e: DragEvent) => {
     e.preventDefault();
     setIsDragging(false);
-    acceptFile(e.dataTransfer.files?.[0]);
+    if (!e.dataTransfer) return;
+    const entries = await collectDroppedEntries(e.dataTransfer);
+    await acceptEntries(entries);
   };
 
   /* ----------------------------------------------------------------- audit */
@@ -142,10 +181,10 @@ export function App() {
     setReport(null);
 
     const stages = [
-      "Isolando repositório em sandbox",
-      "Análise estática · OWASP Top 10",
-      "Detecção de segredos e dependências",
-      "Gerando patches de correção",
+      "Criando um espaço seguro",
+      "Procurando falhas conhecidas",
+      "Procurando senhas e chaves expostas",
+      "Preparando as correções",
     ];
 
     try {
@@ -157,12 +196,12 @@ export function App() {
 
       let res: Response;
       if (activeTab === "zip") {
-        if (!selectedFile) throw new Error("Selecione um arquivo .zip primeiro.");
+        if (!selectedFile) throw new Error("Escolha primeiro a pasta (ou o arquivo .zip) do seu projeto.");
         const formData = new FormData();
         formData.append("file", selectedFile);
         res = await fetch(`${API_BASE_URL}/api/audit/zip`, { method: "POST", body: formData });
       } else {
-        if (!repoUrl) throw new Error("Informe a URL do repositório Git.");
+        if (!repoUrl) throw new Error("Cole primeiro o link do seu projeto.");
         res = await fetch(`${API_BASE_URL}/api/audit/url`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -172,7 +211,7 @@ export function App() {
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || `Erro HTTP ${res.status} ao processar a auditoria.`);
+        throw new Error(errData.error || `Não foi possível concluir a verificação (erro ${res.status}).`);
       }
 
       setProgressStage(stages[3]);
@@ -184,8 +223,8 @@ export function App() {
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : "Erro inesperado ao executar a auditoria.";
-      setErrorMsg(`${message} — verifique o backend em ${API_BASE_URL}, ou use a demonstração.`);
+        err instanceof Error ? err.message : "Algo deu errado ao fazer a verificação.";
+      setErrorMsg(`${message} Confira se o servidor está ligado ou clique em “ver um exemplo”.`);
     } finally {
       setIsAuditing(false);
       setProgressStage("");
@@ -213,7 +252,7 @@ export function App() {
     if (!report) return;
     const previous = document.title;
     const stamp = new Date(report.timestamp).toISOString().slice(0, 10);
-    document.title = `auditoria-sentinel-${stamp}`;
+    document.title = `relatorio-de-seguranca-${stamp}`;
     // O stylesheet de impressão abre todos os achados e remove o cromo da tela.
     window.print();
     document.title = previous;
@@ -245,10 +284,10 @@ export function App() {
 
   /* ------------------------------------------------------------ ai status */
   const aiStatus = (() => {
-    if (!health) return { text: "verificando", color: "var(--bone-faint)" };
-    if (!health.online) return { text: "backend offline", color: "var(--sev-critical)" };
-    if (health.count === 0) return { text: "IA não configurada", color: "var(--sev-medium)" };
-    return { text: health.provider ?? "IA ativa", color: "var(--signal)" };
+    if (!health) return { text: "verificando…", color: "var(--bone-faint)" };
+    if (!health.online) return { text: "servidor fora do ar", color: "var(--sev-critical)" };
+    if (health.count === 0) return { text: "sem IA conectada", color: "var(--sev-medium)" };
+    return { text: health.provider ?? "IA conectada", color: "var(--signal)" };
   })();
 
   /* ------------------------------------------------------------------- view */
@@ -268,15 +307,15 @@ export function App() {
           >
             <MarkLogo className="h-[18px] w-[18px] text-signal" />
             <span className="display text-[17px] tracking-tight">Sentinel</span>
-            <span className="data-label hidden sm:inline">auditoria de segurança</span>
+            <span className="data-label hidden sm:inline">verificação de segurança</span>
           </button>
 
           {!report && (
             <nav className="hidden items-center gap-7 md:flex">
               {[
-                { href: "#capacidades", label: "capacidades" },
-                { href: "#processo", label: "processo" },
-                { href: "#console", label: "executar" },
+                { href: "#capacidades", label: "o que faz" },
+                { href: "#processo", label: "como funciona" },
+                { href: "#console", label: "testar agora" },
               ].map((l) => (
                 <a
                   key={l.href}
@@ -306,7 +345,7 @@ export function App() {
                   className="btn-solid flex items-center gap-2 px-4 py-2 text-[12px]"
                 >
                   <MarkExport className="h-3.5 w-3.5" />
-                  Exportar PDF
+                  Salvar em PDF
                 </button>
                 <button
                   type="button"
@@ -314,7 +353,7 @@ export function App() {
                   className="btn-line flex items-center gap-2 px-4 py-2 text-[12px]"
                 >
                   <MarkReset className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">Nova auditoria</span>
+                  <span className="hidden sm:inline">Nova verificação</span>
                 </button>
               </>
             )}
@@ -335,26 +374,26 @@ export function App() {
 
               <div className="relative mx-auto max-w-6xl px-6 py-20 lg:px-8 lg:py-28">
                 <div className="animate-rise data-label flex flex-wrap gap-x-8 gap-y-2">
-                  <span>v2.0</span>
-                  <span>OWASP Top 10</span>
-                  <span>roteador de IA multi-provedor</span>
-                  <span>sandbox descartável</span>
+                  <span>versão 2.0</span>
+                  <span>análise por inteligência artificial</span>
+                  <span>seu código não fica guardado</span>
                 </div>
 
                 <h1
-                  className="animate-rise display mt-10 max-w-[15ch] text-[2.75rem] leading-[1.03] sm:text-[4rem]"
+                  className="animate-rise display mt-10 max-w-[16ch] text-[2.75rem] leading-[1.03] sm:text-[4rem]"
                   style={{ animationDelay: "80ms" }}
                 >
-                  Encontre falhas antes que cheguem à produção.
+                  Descubra as falhas de segurança do seu sistema antes que alguém as encontre.
                 </h1>
 
                 <p
                   className="animate-rise mt-8 max-w-measure text-[16px] leading-relaxed text-bone-dim"
                   style={{ animationDelay: "160ms" }}
                 >
-                  O Sentinel audita seu código com IA, mapeia vulnerabilidades, segredos expostos e
-                  dependências inseguras — e devolve patches prontos para commit, em um dossiê
-                  exportável.
+                  É simples: você envia a pasta do seu projeto (ou o .zip dela) e o Sentinel procura, com
+                  inteligência artificial, os pontos fracos que um invasor poderia usar. No fim,
+                  você recebe uma nota, uma lista do que está errado e o passo a passo para
+                  corrigir — tudo pronto para salvar em PDF.
                 </p>
 
                 <div
@@ -366,14 +405,14 @@ export function App() {
                     onClick={scrollToConsole}
                     className="btn-solid px-6 py-3 text-[13px]"
                   >
-                    Executar auditoria
+                    Verificar meu projeto
                   </button>
                   <button
                     type="button"
                     onClick={loadDemo}
                     className="data-label link-underline hover:text-bone"
                   >
-                    ver demonstração
+                    ver um exemplo de resultado
                   </button>
                 </div>
               </div>
@@ -383,12 +422,12 @@ export function App() {
             <section id="capacidades" className="scroll-mt-20">
               <div className="mx-auto grid max-w-6xl gap-10 px-6 py-20 lg:grid-cols-12 lg:px-8">
                 <div className="lg:col-span-4">
-                  <span className="data-label">01 / capacidades</span>
+                  <span className="data-label">01 / o que faz</span>
                   <h2 className="display mt-4 text-[2rem] leading-tight">
-                    Quatro camadas de análise
+                    O que a verificação encontra
                   </h2>
                   <p className="mt-4 max-w-measure text-[14px] leading-relaxed text-bone-dim">
-                    Trabalham juntas para reduzir o tempo entre a falha e a correção.
+                    Tudo explicado em linguagem simples, para você entender e resolver rápido.
                   </p>
                 </div>
 
@@ -414,8 +453,8 @@ export function App() {
             <section id="processo" className="scroll-mt-20 border-t border-rule">
               <div className="mx-auto grid max-w-6xl gap-12 px-6 py-20 lg:grid-cols-12 lg:px-8">
                 <div className="lg:col-span-5">
-                  <span className="data-label">02 / processo</span>
-                  <h2 className="display mt-4 text-[2rem] leading-tight">Do upload ao patch</h2>
+                  <span className="data-label">02 / como funciona</span>
+                  <h2 className="display mt-4 text-[2rem] leading-tight">Do envio ao resultado</h2>
 
                   <ol className="mt-8">
                     {PROCESS.map((p, i) => (
@@ -431,7 +470,7 @@ export function App() {
                 </div>
 
                 <div id="console" ref={consoleRef} className="scroll-mt-20 lg:col-span-7">
-                  <span className="data-label">03 / executar</span>
+                  <span className="data-label">03 / testar agora</span>
                   <div className="mt-4">
                     <AuditConsole
                       activeTab={activeTab}
@@ -443,7 +482,10 @@ export function App() {
                       isAuditing={isAuditing}
                       progressStage={progressStage}
                       fileInputRef={fileInputRef}
+                      folderInputRef={folderInputRef}
+                      isPreparing={isPreparing}
                       onFileChange={onFileChange}
+                      onFolderChange={onFolderChange}
                       onDragOver={onDragOver}
                       onDragLeave={onDragLeave}
                       onDrop={onDrop}
@@ -456,8 +498,9 @@ export function App() {
                   {!health?.count && health?.online && (
                     <p className="mt-5 flex items-start gap-2 text-[12.5px] leading-relaxed text-bone-faint">
                       <MarkAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-sev-medium" />
-                      Nenhum provedor de IA configurado. Defina as chaves em{" "}
-                      <code className="text-bone-dim">.env</code> para rodar auditorias reais.
+                      Nenhuma inteligência artificial conectada ainda. Peça para colocar a chave de
+                      acesso no arquivo <code className="text-bone-dim">.env</code> para fazer
+                      verificações de verdade.
                     </p>
                   )}
                 </div>
@@ -470,9 +513,9 @@ export function App() {
             {/* masthead */}
             <div className="rule-strong flex flex-wrap items-start justify-between gap-6 pt-6">
               <div>
-                <span className="data-label">relatório de auditoria</span>
+                <span className="data-label">resultado da verificação</span>
                 <h1 className="display mt-3 text-[2.25rem] leading-tight sm:text-[2.75rem]">
-                  Resultado da varredura
+                  Veja o que encontramos
                 </h1>
               </div>
               <div className="no-print flex flex-wrap items-center gap-3">
@@ -482,7 +525,7 @@ export function App() {
                   className="btn-solid flex items-center gap-2 px-5 py-2.5 text-[12.5px]"
                 >
                   <MarkExport className="h-4 w-4" />
-                  Exportar PDF
+                  Salvar em PDF
                 </button>
                 <button
                   type="button"
@@ -490,7 +533,7 @@ export function App() {
                   className="btn-line flex items-center gap-2 px-5 py-2.5 text-[12.5px]"
                 >
                   <MarkReset className="h-4 w-4" />
-                  Nova auditoria
+                  Nova verificação
                 </button>
               </div>
             </div>
@@ -498,10 +541,10 @@ export function App() {
             {/* metadados */}
             <dl className="mt-8 grid grid-cols-2 gap-x-8 gap-y-5 border-t border-rule pt-6 sm:grid-cols-4">
               {[
-                { k: "data", v: new Date(report.timestamp).toLocaleString("pt-BR") },
-                { k: "arquivos", v: String(report.auditedFilesCount) },
-                { k: "achados", v: String(report.totalIssues) },
-                { k: "provedor", v: report.providerUsed ?? "—" },
+                { k: "quando", v: new Date(report.timestamp).toLocaleString("pt-BR") },
+                { k: "arquivos analisados", v: String(report.auditedFilesCount) },
+                { k: "problemas encontrados", v: String(report.totalIssues) },
+                { k: "inteligência artificial", v: report.providerUsed ?? "—" },
               ].map((m) => (
                 <div key={m.k}>
                   <dt className="data-label">{m.k}</dt>
@@ -513,14 +556,14 @@ export function App() {
             {/* score + severidade + rota */}
             <div className="mt-14 grid gap-12 lg:grid-cols-12">
               <div className="lg:col-span-5">
-                <span className="data-label">pontuação de segurança</span>
+                <span className="data-label">nota de segurança</span>
                 <div className="mt-5">
                   <ScoreReadout score={report.score} />
                 </div>
               </div>
 
               <div className="lg:col-span-4">
-                <span className="data-label">distribuição por severidade</span>
+                <span className="data-label">problemas por gravidade</span>
                 <div className="mt-4">
                   <SeverityBreakdown report={report} active={filter} onSelect={setFilter} />
                 </div>
@@ -535,9 +578,9 @@ export function App() {
               </div>
             </div>
 
-            {/* diagnóstico executivo */}
+            {/* resumo */}
             <div className="mt-14 border-t border-rule pt-8">
-              <span className="data-label">diagnóstico executivo</span>
+              <span className="data-label">resumo geral</span>
               <p className="mt-4 max-w-measure text-[15px] leading-relaxed text-bone-dim">
                 {report.summary}
               </p>
@@ -547,15 +590,15 @@ export function App() {
             <div className="mt-14">
               <div className="flex flex-wrap items-end justify-between gap-6">
                 <div>
-                  <span className="data-label">achados</span>
-                  <h2 className="display mt-2 text-[1.75rem] leading-tight">Vulnerabilidades</h2>
+                  <span className="data-label">problemas encontrados</span>
+                  <h2 className="display mt-2 text-[1.75rem] leading-tight">Lista de problemas</h2>
                 </div>
 
                 <div className="no-print flex flex-wrap items-center gap-x-5 gap-y-2">
                   {(["all", ...SEVERITY_ORDER] as const).map((sev) => {
                     const isAll = sev === "all";
                     const active = filter === sev;
-                    const label = isAll ? "Todas" : SEVERITY_META[sev].label;
+                    const label = isAll ? "Todos" : SEVERITY_META[sev].label;
                     return (
                       <button
                         key={sev}
@@ -581,7 +624,7 @@ export function App() {
               <div className="mt-6 border-t border-rule-strong">
                 {issues.length === 0 ? (
                   <p className="py-14 text-[14px] text-bone-dim">
-                    Nenhum apontamento neste nível de severidade.
+                    Nenhum problema deste tipo por aqui.
                   </p>
                 ) : (
                   issues.map((issue, i) => (
@@ -598,8 +641,8 @@ export function App() {
             </div>
 
             <p className="mt-14 border-t border-rule pt-6 text-[11.5px] leading-relaxed text-bone-faint">
-              Documento gerado pelo Sentinel. Achados produzidos por análise automatizada —
-              recomenda-se revisão humana antes de decisões de segurança.
+              Relatório gerado automaticamente pelo Sentinel. Como toda análise automática, vale a
+              pena a revisão de um profissional antes de tomar decisões importantes.
             </p>
           </div>
         )}
@@ -609,9 +652,9 @@ export function App() {
       <footer className="no-print border-t border-rule">
         <div className="mx-auto flex max-w-6xl flex-col gap-3 px-6 py-8 sm:flex-row sm:items-center sm:justify-between lg:px-8">
           <span className="data-label">
-            Sentinel · {new Date().getFullYear()} · OWASP Top 10
+            Sentinel · {new Date().getFullYear()} · verificação de segurança
           </span>
-          <span className="data-label">sandbox descartável · edge runtime</span>
+          <span className="data-label">seu projeto é analisado e apagado em seguida</span>
         </div>
       </footer>
     </div>
