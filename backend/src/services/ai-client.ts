@@ -113,7 +113,7 @@ export class AgnosticAIRouter {
           env.AI_ENDPOINT_GOOGLE || "https://generativelanguage.googleapis.com/v1beta/openai"
         ).trim(),
         apiKey: env.AI_API_KEY_GOOGLE.trim(),
-        model: env.AI_MODEL_GOOGLE || "gemini-3.5-flash",
+        model: env.AI_MODEL_GOOGLE || "gemini-3.5-flash-lite",
         // Modelos costumam ficar saturados (503) ou sair de linha; tentamos
         // alternativas automaticamente antes de desistir do provedor.
         fallbackModels: ["gemini-3.1-flash-lite", "gemini-flash-lite-latest"],
