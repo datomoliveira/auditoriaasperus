@@ -16,6 +16,13 @@ export type Bindings = {
   AI_API_KEY_OLLAMA?: string;
   AI_ENDPOINT_OLLAMA?: string;
   AI_MODEL_OLLAMA?: string;
+  AI_API_KEY_NVIDIA?: string;
+  AI_ENDPOINT_NVIDIA?: string;
+  AI_MODEL_NVIDIA?: string;
+  NVIDIA_API_KEY?: string;
+  OPENROUTER_API_KEY?: string;
+  OPENROUTER_ENDPOINT?: string;
+  OPENROUTER_MODEL?: string;
   GROQ_API_KEY?: string;
   GROQ_ENDPOINT?: string;
   GROQ_MODEL?: string;
@@ -23,8 +30,6 @@ export type Bindings = {
   OLLAMA_MODEL?: string;
   DEEPSEEK_API_KEY?: string;
   DEEPSEEK_MODEL?: string;
-  OPENROUTER_API_KEY?: string;
-  OPENROUTER_MODEL?: string;
   AI_ROUTING_CHAIN?: string;
   ENVIRONMENT?: string;
 };

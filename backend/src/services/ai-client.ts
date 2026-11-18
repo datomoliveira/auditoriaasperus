@@ -164,12 +164,31 @@ export class AgnosticAIRouter {
         name: "OpenRouter (Free Tier)",
         endpoint: (env.OPENROUTER_ENDPOINT || "https://openrouter.ai/api/v1").trim(),
         apiKey: env.OPENROUTER_API_KEY.trim(),
-        model: env.OPENROUTER_MODEL || "meta-llama/llama-3.3-70b-instruct:free",
-        timeoutMs: 30000,
+        model: env.OPENROUTER_MODEL || "particle-ai/particle-1:free",
+        // Modelos gratuitos saem de linha/entram em rate limit com frequência.
+        fallbackModels: [
+          "recursive/flint-v1.0:free",
+          "nvidia/nemotron-3.5-super-vl:free",
+          "google/gemma-4-31b-it:free",
+          "cohere/north-mini-code:free",
+        ],
+        timeoutMs: 45000,
       };
     }
 
-    // 5. Provedor Cloudflare Workers AI
+    // 5. Provedor NVIDIA NIM (build.nvidia.com / integrate.api.nvidia.com)
+    if (env.AI_API_KEY_NVIDIA || env.NVIDIA_API_KEY) {
+      registry["nvidia"] = {
+        name: "NVIDIA NIM",
+        endpoint: (env.AI_ENDPOINT_NVIDIA || "https://integrate.api.nvidia.com/v1").trim(),
+        apiKey: (env.AI_API_KEY_NVIDIA || env.NVIDIA_API_KEY)!.trim(),
+        model: env.AI_MODEL_NVIDIA || "nvidia/nemotron-3-ultra-550b-a55b",
+        fallbackModels: ["google/gemma-4-31b-it", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"],
+        timeoutMs: 45000,
+      };
+    }
+
+    // 6. Provedor Cloudflare Workers AI
     if (env.CLOUDFLARE_AI_TOKEN && env.CLOUDFLARE_ACCOUNT_ID) {
       registry["cloudflare"] = {
         name: "Cloudflare Workers AI",
@@ -180,7 +199,7 @@ export class AgnosticAIRouter {
       };
     }
 
-    // 6. Configuração Genérica Fallback (AI_API_ENDPOINT / AI_API_KEY)
+    // 7. Configuração Genérica Fallback (AI_API_ENDPOINT / AI_API_KEY)
     if (env.AI_API_ENDPOINT) {
       registry["custom_primary"] = {
         name: "Custom Primary AI",
@@ -191,7 +210,7 @@ export class AgnosticAIRouter {
       };
     }
 
-    // 7. Provedor Genérico de Reserva Secundário
+    // 8. Provedor Genérico de Reserva Secundário
     if (env.FALLBACK_AI_API_ENDPOINT) {
       registry["custom_fallback"] = {
         name: "Custom Fallback AI",
@@ -206,7 +225,7 @@ export class AgnosticAIRouter {
     // Se o usuário definiu AI_ROUTING_CHAIN="groq,ollama,deepseek", respeita a ordem exata.
     const chainConfig = env.AI_ROUTING_CHAIN
       ? env.AI_ROUTING_CHAIN.split(",").map((k) => k.trim().toLowerCase())
-      : ["grok", "google", "ollama", "groq", "deepseek", "openrouter", "cloudflare", "custom_primary", "custom_fallback"];
+      : ["google", "nvidia", "openrouter", "grok", "ollama", "groq", "deepseek", "cloudflare", "custom_primary", "custom_fallback"];
 
     const activeChain: AIProviderConfig[] = [];
     for (const key of chainConfig) {
