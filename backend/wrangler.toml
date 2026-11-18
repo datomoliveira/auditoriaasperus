@@ -7,10 +7,11 @@ compatibility_flags = ["nodejs_compat"]
 ENVIRONMENT = "production"
 MAX_UPLOAD_SIZE_MB = "25"
 # Chaves de IA devem ser configuradas como secrets no Cloudflare:
-#   wrangler secret put AI_API_KEY_GROK
 #   wrangler secret put AI_API_KEY_GOOGLE
+#   wrangler secret put AI_API_KEY_NVIDIA
+#   wrangler secret put OPENROUTER_API_KEY
 #   wrangler secret put AI_API_KEY_OLLAMA
-# Opcional: AI_ROUTING_CHAIN define a ordem de fallback (ex.: "grok,google,ollama").
+# Opcional: AI_ROUTING_CHAIN define a ordem de fallback (ex.: "google,nvidia,openrouter").
 #
 # Observação: o deploy padrão deste projeto é via Cloudflare Pages Functions
 # (pasta ../functions), que reaproveita as variáveis do projeto Pages. Este

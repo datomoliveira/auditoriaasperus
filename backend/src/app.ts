@@ -7,9 +7,6 @@ export type Bindings = {
   AI_API_ENDPOINT?: string;
   AI_API_KEY?: string;
   AI_MODEL?: string;
-  AI_API_KEY_GROK?: string;
-  AI_ENDPOINT_GROK?: string;
-  AI_MODEL_GROK?: string;
   AI_API_KEY_GOOGLE?: string;
   AI_ENDPOINT_GOOGLE?: string;
   AI_MODEL_GOOGLE?: string;
@@ -133,7 +130,7 @@ app.post("/api/audit/zip", async (c) => {
 });
 
 /**
- * Endpoint de Auditoria via link: repositório git OU arquivo .zip comum
+ * Endpoint de Auditoria via link: site publicado, repositório git OU arquivo .zip
  */
 app.post("/api/audit/url", async (c) => {
   try {
@@ -144,7 +141,7 @@ app.post("/api/audit/url", async (c) => {
         {
           error:
             "Link inválido. Use um endereço começando com http:// ou https:// " +
-            "(ex.: https://github.com/usuario/projeto ou https://site.com/projeto.zip).",
+            "(ex.: https://seusite.com, https://github.com/usuario/projeto ou https://site.com/projeto.zip).",
         },
         400,
       );
@@ -153,26 +150,34 @@ app.post("/api/audit/url", async (c) => {
     const runId = `audit-url-${Date.now()}-${Math.random().toString(36).substring(7)}`;
     const sandbox = new AuditSandbox();
 
-    // Link direto para um .zip → baixa e analisa como projeto compactado.
-    // Caso contrário, tratamos como repositório git e baixamos o arquivo do host.
+    // Três formatos de link:
+    //  - termina em .zip           → baixa e analisa como projeto compactado;
+    //  - host de repositório git   → baixa o código-fonte do repositório;
+    //  - qualquer outro endereço   → lê o site publicado e analisa a página no ar.
     const isZipLink = /\.zip(\?|#|$)/i.test(url);
     const isGitHost =
       /(?:^|[./@])(github\.com|gitlab\.com|bitbucket\.org|codeberg\.org|sr\.ht|gitea\.com)\b/i.test(
         url,
       ) || /\.git(\?|#|$)/i.test(url);
 
-    const result =
-      isZipLink || !isGitHost
+    const result = isZipLink
+      ? await sandbox.executeAudit({
+          runId,
+          sourceType: "zip",
+          zipBuffer: await sandbox.downloadZip(url),
+          customEnv: getMergedEnv(c),
+        })
+      : isGitHost
         ? await sandbox.executeAudit({
             runId,
-            sourceType: "zip",
-            zipBuffer: await sandbox.downloadZip(url),
+            sourceType: "git",
+            repoUrl: url,
             customEnv: getMergedEnv(c),
           })
         : await sandbox.executeAudit({
             runId,
-            sourceType: "git",
-            repoUrl: url,
+            sourceType: "site",
+            siteUrl: url,
             customEnv: getMergedEnv(c),
           });
 

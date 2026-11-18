@@ -220,7 +220,7 @@ export function App() {
         formData.append("file", selectedFile);
         res = await fetch(`${API_BASE_URL}/api/audit/zip`, { method: "POST", body: formData });
       } else {
-        if (!repoUrl) throw new Error("Cole primeiro o link do seu projeto.");
+        if (!repoUrl) throw new Error("Cole primeiro o link do seu projeto ou site.");
         res = await fetch(`${API_BASE_URL}/api/audit/url`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },

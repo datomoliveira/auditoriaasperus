@@ -77,7 +77,7 @@ export function AuditConsole({
           {(
             [
               { id: "zip" as const, label: "Enviar do computador" },
-              { id: "url" as const, label: "Link do projeto" },
+              { id: "url" as const, label: "Link ou site" },
             ] as const
           ).map(({ id, label }) => (
             <button
@@ -175,21 +175,21 @@ export function AuditConsole({
         ) : (
           <div>
             <label htmlFor="repo-url" className="data-label">
-              link do seu projeto
+              link do projeto ou site
             </label>
             <input
               id="repo-url"
               type="text"
               spellCheck={false}
-              placeholder="https://github.com/usuario/projeto  ou  https://site.com/projeto.zip"
+              placeholder="https://seusite.com  ·  https://github.com/usuario/projeto  ·  https://site.com/projeto.zip"
               value={repoUrl}
               onChange={(e) => onRepoUrlChange(e.target.value)}
               className="mt-3 w-full border border-rule-strong bg-transparent px-3.5 py-3 font-mono text-[13px] text-bone placeholder:text-bone-faint focus:border-signal focus:outline-none"
             />
             <p className="mt-3 text-[12px] leading-relaxed text-bone-faint">
-              Aceita um link de repositório (GitHub, GitLab…) ou um link direto para um arquivo{" "}
-              <span className="text-bone-dim">.zip</span>. Baixamos uma cópia, analisamos e apagamos
-              em seguida.
+              Pode ser o endereço de um site no ar (nós abrimos a página e analisamos o que está
+              publicado), um link de repositório (GitHub, GitLab…) ou um link direto para um arquivo{" "}
+              <span className="text-bone-dim">.zip</span>.
             </p>
           </div>
         )}

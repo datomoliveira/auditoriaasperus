@@ -73,7 +73,7 @@ export class AgnosticAIRouter {
       // Detalhe técnico só no console; o usuário vê um aviso claro e sem jargão.
       console.error(
         "[AIRouter Error] Nenhum provedor de IA configurado. " +
-          "Defina ao menos uma chave (AI_API_KEY_GROK, AI_API_KEY_GOOGLE ou AI_API_KEY_OLLAMA).",
+          "Defina ao menos uma chave (AI_API_KEY_GOOGLE, AI_API_KEY_NVIDIA ou OPENROUTER_API_KEY).",
       );
       throw new Error(
         "Nenhuma inteligência artificial conseguiu concluir a verificação. " +
@@ -91,19 +91,7 @@ export class AgnosticAIRouter {
 
     // Provedores nomeados por sufixo: AI_API_KEY_<PROVEDOR>
     // Estes são os nomes usados como secrets no Cloudflare:
-    // AI_API_KEY_GROK, AI_API_KEY_GOOGLE, AI_API_KEY_OLLAMA.
-
-    // Grok (xAI) — AI_API_KEY_GROK
-    if (env.AI_API_KEY_GROK) {
-      registry["grok"] = {
-        name: "Grok (xAI)",
-        endpoint: (env.AI_ENDPOINT_GROK || "https://api.x.ai/v1").trim(),
-        apiKey: env.AI_API_KEY_GROK.trim(),
-        model: env.AI_MODEL_GROK || "grok-4.7",
-        fallbackModels: ["grok-4.6", "grok-4.5"],
-        timeoutMs: 35000,
-      };
-    }
+    // AI_API_KEY_GOOGLE, AI_API_KEY_NVIDIA, OPENROUTER_API_KEY, AI_API_KEY_OLLAMA.
 
     // Google Gemini — AI_API_KEY_GOOGLE (endpoint compatível com OpenAI)
     if (env.AI_API_KEY_GOOGLE) {
@@ -230,7 +218,7 @@ export class AgnosticAIRouter {
     // Se o usuário definiu AI_ROUTING_CHAIN="groq,ollama,deepseek", respeita a ordem exata.
     const chainConfig = env.AI_ROUTING_CHAIN
       ? env.AI_ROUTING_CHAIN.split(",").map((k) => k.trim().toLowerCase())
-      : ["google", "nvidia", "openrouter", "grok", "ollama", "groq", "deepseek", "cloudflare", "custom_primary", "custom_fallback"];
+      : ["google", "nvidia", "openrouter", "ollama", "groq", "deepseek", "cloudflare", "custom_primary", "custom_fallback"];
 
     const activeChain: AIProviderConfig[] = [];
     for (const key of chainConfig) {

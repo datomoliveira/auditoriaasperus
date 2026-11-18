@@ -3,9 +3,11 @@ import { AgnosticAIRouter, AuditReportResult } from "./ai-client";
 
 export interface SandboxExecutionOptions {
   runId: string;
-  sourceType: "zip" | "git";
+  sourceType: "zip" | "git" | "site";
   zipBuffer?: Uint8Array;
   repoUrl?: string;
+  /** Endereço de um site publicado (ex.: https://meusite.com) para auditar a página no ar. */
+  siteUrl?: string;
   customEnv?: Record<string, string | undefined>;
 }
 
@@ -57,15 +59,21 @@ export class AuditSandbox {
    * 4. Executa a auditoria via roteador de IA com failover
    */
   async executeAudit(options: SandboxExecutionOptions): Promise<AuditReportResult> {
-    const files =
-      options.sourceType === "zip"
-        ? this.extractZip(options.zipBuffer ?? new Uint8Array())
-        : await this.fetchRepoFiles(options.repoUrl || "");
+    let files: Map<string, Uint8Array>;
+    if (options.sourceType === "zip") {
+      files = this.extractZip(options.zipBuffer ?? new Uint8Array());
+    } else if (options.sourceType === "git") {
+      files = await this.fetchRepoFiles(options.repoUrl || "");
+    } else {
+      files = await this.fetchSiteFiles(options.siteUrl || options.repoUrl || "");
+    }
 
     const scannedFiles = this.collectSourceFiles(files);
     if (scannedFiles.length === 0) {
       throw new Error(
-        "Não encontramos arquivos de código para analisar. Confira se a pasta enviada contém o projeto.",
+        options.sourceType === "site"
+          ? "Não encontramos conteúdo legível nesse site. Confira se o endereço abre no navegador."
+          : "Não encontramos arquivos de código para analisar. Confira se a pasta enviada contém o projeto.",
       );
     }
 
@@ -132,6 +140,161 @@ export class AuditSandbox {
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  /**
+   * Lê um site publicado no ar: baixa a página principal, os cabeçalhos de
+   * resposta e os scripts que ela carrega (incluindo de CDNs). Não é um
+   * "crawler" completo — respeita limites de tempo, quantidade e tamanho.
+   */
+  async fetchSiteFiles(siteUrl: string): Promise<Map<string, Uint8Array>> {
+    let parsed: URL;
+    try {
+      parsed = new URL(siteUrl);
+    } catch {
+      throw new Error("O endereço informado não é um link válido.");
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new Error("O endereço precisa começar com http:// ou https://.");
+    }
+    if (this.isBlockedHost(parsed.hostname)) {
+      throw new Error("Esse endereço não pode ser analisado por motivos de segurança.");
+    }
+
+    const encoder = new TextEncoder();
+    const files = new Map<string, Uint8Array>();
+    const host = parsed.hostname.replace(/[^a-z0-9.-]/gi, "_");
+
+    // 1) Página principal + cabeçalhos de resposta (úteis p/ checar segurança HTTP).
+    const page = await this.fetchTextResource(parsed.toString(), 30000, 2_000_000);
+    if (page.finalUrl) {
+      try {
+        if (this.isBlockedHost(new URL(page.finalUrl).hostname)) {
+          throw new Error("Esse endereço não pode ser analisado por motivos de segurança.");
+        }
+      } catch (e: any) {
+        if (e?.message?.includes("motivos de segurança")) throw e;
+      }
+    }
+    if (!page.text.trim()) {
+      throw new Error("Não conseguimos ler o conteúdo publicado nesse endereço.");
+    }
+
+    files.set(`site/${host}/${this.pageFileName(parsed)}`, encoder.encode(page.text));
+    files.set(
+      `site/${host}/cabecalhos-http.json`,
+      encoder.encode(JSON.stringify(page.headers, null, 2)),
+    );
+
+    // 2) Scripts referenciados pela página (mesmo site ou CDN), com limites.
+    const base = page.finalUrl || parsed.toString();
+    const scriptUrls = this.extractScriptUrls(page.text, base)
+      .filter((u) => {
+        try {
+          return !this.isBlockedHost(new URL(u).hostname);
+        } catch {
+          return false;
+        }
+      })
+      .slice(0, 15);
+
+    await Promise.all(
+      scriptUrls.map(async (u) => {
+        try {
+          const res = await this.fetchTextResource(u, 20000, MAX_FILE_BYTES);
+          if (!res.text || res.text.includes("\u0000")) return;
+          files.set(`site/${host}/${this.resourcePath(u)}`, encoder.encode(res.text));
+        } catch {
+          // script indisponível — segue a análise sem ele
+        }
+      }),
+    );
+
+    return files;
+  }
+
+  /** Baixa um recurso de texto com timeout e limite de tamanho. */
+  private async fetchTextResource(
+    url: string,
+    timeoutMs: number,
+    maxBytes: number,
+  ): Promise<{ text: string; headers: Record<string, string>; finalUrl: string }> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, {
+        redirect: "follow",
+        signal: controller.signal,
+        headers: {
+          "User-Agent": "sentinel-audit",
+          Accept: "text/html,application/xhtml+xml,application/javascript,text/javascript,application/json,*/*",
+        },
+      });
+
+      const headers: Record<string, string> = {};
+      res.headers.forEach((value, key) => {
+        headers[key] = value;
+      });
+
+      if (!res.ok) {
+        throw new Error(`Não foi possível acessar o endereço (HTTP ${res.status}).`);
+      }
+
+      const declared = Number(res.headers.get("content-length") || 0);
+      if (declared && declared > maxBytes) {
+        throw new Error("O conteúdo desse endereço é grande demais para analisar.");
+      }
+
+      const text = await res.text();
+      return {
+        text: text.length > maxBytes ? text.slice(0, maxBytes) : text,
+        headers,
+        finalUrl: res.url || url,
+      };
+    } catch (err: any) {
+      if (err?.name === "AbortError") {
+        throw new Error("O site demorou demais para responder.");
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  /** Nome legível para a página principal (ex.: "/" → index.html, "/sobre" → sobre.html). */
+  private pageFileName(u: URL): string {
+    const last = u.pathname.split("/").filter(Boolean).pop() || "";
+    if (!last) return "index.html";
+    return /\.[a-z0-9]+$/i.test(last) ? last : `${last}.html`;
+  }
+
+  /** Caminho legível para um recurso remoto (ex.: "/a/app.js" → "a/app.js"). */
+  private resourcePath(rawUrl: string): string {
+    try {
+      const u = new URL(rawUrl);
+      const parts = u.pathname.split("/").filter(Boolean);
+      let last = parts.pop() || "recurso";
+      if (!/\.[a-z0-9]+$/i.test(last)) last += ".js";
+      return [...parts, last].join("/");
+    } catch {
+      return `recurso-${Math.random().toString(36).slice(2, 8)}.js`;
+    }
+  }
+
+  /** Extrai os endereços de <script src="..."> de uma página HTML. */
+  private extractScriptUrls(html: string, base: string): string[] {
+    const urls: string[] = [];
+    const re = /<script\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(html)) !== null) {
+      try {
+        const abs = new URL(m[1], base).toString();
+        if (/^https?:/i.test(abs)) urls.push(abs);
+      } catch {
+        // endereço inválido — ignora
+      }
+    }
+    return [...new Set(urls)];
   }
 
   /** Bloqueia alvos internos/privados (proteção contra SSRF). */
