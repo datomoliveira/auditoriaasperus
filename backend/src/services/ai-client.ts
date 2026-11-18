@@ -164,13 +164,14 @@ export class AgnosticAIRouter {
         name: "OpenRouter (Free Tier)",
         endpoint: (env.OPENROUTER_ENDPOINT || "https://openrouter.ai/api/v1").trim(),
         apiKey: env.OPENROUTER_API_KEY.trim(),
-        model: env.OPENROUTER_MODEL || "particle-ai/particle-1:free",
+        model: env.OPENROUTER_MODEL || "nvidia/nemotron-3-ultra-550b-a55b:free",
         // Modelos gratuitos saem de linha/entram em rate limit com frequência.
         fallbackModels: [
           "recursive/flint-v1.0:free",
+          "baidu/ernie-5.5-flash-preview:free",
           "nvidia/nemotron-3.5-super-vl:free",
-          "google/gemma-4-31b-it:free",
           "cohere/north-mini-code:free",
+          "particle-ai/particle-1:free",
         ],
         timeoutMs: 45000,
       };
@@ -183,7 +184,11 @@ export class AgnosticAIRouter {
         endpoint: (env.AI_ENDPOINT_NVIDIA || "https://integrate.api.nvidia.com/v1").trim(),
         apiKey: (env.AI_API_KEY_NVIDIA || env.NVIDIA_API_KEY)!.trim(),
         model: env.AI_MODEL_NVIDIA || "nvidia/nemotron-3-ultra-550b-a55b",
-        fallbackModels: ["google/gemma-4-31b-it", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning"],
+        fallbackModels: [
+          "poolside/laguna-xs-2.1",
+          "nvidia/nemotron-3.5-super-vl-120b-a12b",
+          "google/gemma-4-31b-it",
+        ],
         timeoutMs: 45000,
       };
     }
